@@ -17,15 +17,32 @@
 
 <br>
 
-**🚀 一键部署到 Cloudflare（自动创建 D1 数据库）：**
+**🚀 推荐：GitHub Actions 自动部署（推送即更新 + 自动创建 D1）**
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/BYGD/dog-nav)
+Fork 本仓库后，在仓库设置中添加两个 Secrets：
+
+- `CLOUDFLARE_API_TOKEN`：在 [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建，权限选择 **Edit Cloudflare Workers** 和 **Edit D1**
+- `CLOUDFLARE_ACCOUNT_ID`：在 Cloudflare 控制台右侧边栏查看
+
+配置完成后，每次 push 到 `main` 分支都会自动部署到 Cloudflare。
+
+<details>
+<summary>或用 Cloudflare 一键部署按钮（需先手动创建 D1）</summary>
+
+1. 点击下方按钮部署 Worker：
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/godjos/dog-nav)
+
+2. 部署完成后，在 Cloudflare 控制台创建 D1 数据库 `dognav`，复制 database ID。
+3. 修改仓库 `wrangler.toml` 和 `cloudflare/wrangler.toml` 中的 `database_id`，重新部署。
+
+</details>
 
 <details>
 <summary>或用命令行部署</summary>
 
 ```bash
-git clone https://github.com/BYGD/dog-nav.git
+git clone https://github.com/godjos/dog-nav.git
 cd dog-nav && npm install
 npm run deploy:cf
 ```
@@ -125,7 +142,7 @@ DogNav 提供**两种部署模式**，前端和 API 完全一致：
 
 ```bash
 # 克隆仓库
-git clone https://github.com/BYGD/dog-nav.git
+git clone https://github.com/godjos/dog-nav.git
 cd dog-nav
 
 # 安装依赖
@@ -141,11 +158,29 @@ npm start
 
 **默认管理员：** `admin` / `admin123`
 
-### Cloudflare 一键部署
+### Cloudflare 自动部署（推荐）
+
+配置 GitHub Actions 后，每次 push 到 `main` 都会自动部署。
+
+需要先在仓库 **Settings → Secrets and variables → Actions** 中添加：
+
+| Secret | 说明 |
+|--------|------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token，需包含 `Cloudflare Workers:Edit` 和 `D1:Edit` 权限 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID，在控制台右侧查看 |
+
+添加后，推送任意改动即可触发自动部署。Workflow 会：
+
+1. 检查/创建 D1 数据库 `dognav`
+2. 自动更新 `wrangler.toml` 中的 `database_id`
+3. 部署 Worker
+4. 首次部署后自动初始化数据库表和默认数据
+
+### 本地命令行部署
 
 ```bash
 # 克隆仓库
-git clone https://github.com/BYGD/dog-nav.git
+git clone https://github.com/godjos/dog-nav.git
 cd dog-nav
 
 # 安装依赖
@@ -318,6 +353,6 @@ dog-nav/
 
 **⭐ 如果觉得这个项目对你有帮助，欢迎点个 Star！⭐**
 
-[在线演示](https://nav.cangdog.com) · [Cloudflare 版](https://dognav.ccgg.workers.dev) · [反馈问题](https://github.com/BYGD/dog-nav/issues) · [提出建议](https://github.com/BYGD/dog-nav/issues)
+[在线演示](https://nav.cangdog.com) · [Cloudflare 版](https://dognav.ccgg.workers.dev) · [反馈问题](https://github.com/godjos/dog-nav/issues) · [提出建议](https://github.com/godjos/dog-nav/issues)
 
 </div>
