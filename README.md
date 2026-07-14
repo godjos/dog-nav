@@ -17,24 +17,24 @@
 
 <br>
 
-**🚀 推荐：GitHub Actions 自动部署（推送即更新 + 自动创建 D1）**
+**🚀 推荐：Cloudflare 原生 Git 集成（推送即更新）**
 
-Fork 本仓库后，在仓库设置中添加两个 Secrets：
+1. 在 [Cloudflare 控制台](https://dash.cloudflare.com) 创建 D1 数据库，名称必须是 **`dognav`**。
+2. 进入 **Workers & Pages** → 点击 **Create** → 选择 **Connect to Git**。
+3. 授权并选择 `godjos/dog-nav` 仓库，分支选 `main`。
+4. 部署完成后，在 Worker 设置里确认已有 D1 binding：`DB` → `dognav`。
 
-- `CLOUDFLARE_API_TOKEN`：在 [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建，权限选择 **Edit Cloudflare Workers** 和 **Edit D1**
-- `CLOUDFLARE_ACCOUNT_ID`：在 Cloudflare 控制台右侧边栏查看
-
-配置完成后，每次 push 到 `main` 分支都会自动部署到 Cloudflare。
+之后每次 push 到 `main`，Cloudflare 会自动拉取最新代码并重新部署。
 
 <details>
-<summary>或用 Cloudflare 一键部署按钮（需先手动创建 D1）</summary>
+<summary>或用 Cloudflare 一键部署按钮</summary>
 
-1. 点击下方按钮部署 Worker：
+1. 先确保 Cloudflare 账号中已存在名为 `dognav` 的 D1 数据库。
+2. 点击下方按钮部署 Worker：
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/godjos/dog-nav)
 
-2. 部署完成后，在 Cloudflare 控制台创建 D1 数据库 `dognav`，复制 database ID。
-3. 修改仓库 `wrangler.toml` 和 `cloudflare/wrangler.toml` 中的 `database_id`，重新部署。
+3. 部署完成后，在 Worker 的 D1 Bindings 里把 `DB` 绑定到 `dognav` 数据库。
 
 </details>
 
@@ -160,21 +160,24 @@ npm start
 
 ### Cloudflare 自动部署（推荐）
 
-配置 GitHub Actions 后，每次 push 到 `main` 都会自动部署。
+使用 Cloudflare 原生 Git 集成，无需 GitHub Actions：
 
-需要先在仓库 **Settings → Secrets and variables → Actions** 中添加：
+1. **创建 D1 数据库**
+   - 进入 [Cloudflare 控制台](https://dash.cloudflare.com) → **Workers & Pages** → **D1**
+   - 创建数据库，名称必须为 **`dognav`**
 
-| Secret | 说明 |
-|--------|------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token，需包含 `Cloudflare Workers:Edit` 和 `D1:Edit` 权限 |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID，在控制台右侧查看 |
+2. **连接 GitHub 仓库**
+   - 进入 **Workers & Pages** → **Create**
+   - 选择 **Connect to Git**
+   - 选择 `godjos/dog-nav` 仓库和 `main` 分支
+   - 部署配置保持默认即可
 
-添加后，推送任意改动即可触发自动部署。Workflow 会：
+3. **确认 D1 Binding**
+   - 部署完成后，进入 Worker 设置 → **Settings → Variables → D1 Database Bindings**
+   - 确认存在 `DB` → `dognav` 的绑定
+   - 如果没有，手动添加一条：Variable name 填 `DB`，选择 `dognav` 数据库
 
-1. 检查/创建 D1 数据库 `dognav`
-2. 自动更新 `wrangler.toml` 中的 `database_id`
-3. 部署 Worker
-4. 首次部署后自动初始化数据库表和默认数据
+之后每次 push 到 `main`，Cloudflare 会自动拉取代码并重新部署。
 
 ### 本地命令行部署
 
