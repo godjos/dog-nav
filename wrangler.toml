@@ -1,4 +1,4 @@
-name = "dognav"
+name = "dog-nav"
 main = "cloudflare/src/index.js"
 compatibility_date = "2025-06-25"
 
