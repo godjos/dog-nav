@@ -84,9 +84,21 @@ async function main() {
     // ─── Step 4: Update wrangler.toml ───
     step('Step 4/6: 更新配置');
     const tomlPath = path.join(__dirname, 'wrangler.toml');
-    let toml = fs.readFileSync(tomlPath, 'utf8');
-    toml = toml.replace(/database_id\s*=\s*".*"/, `database_id = "${dbId}"`);
-    fs.writeFileSync(tomlPath, toml);
+    const rootTomlPath = path.join(__dirname, '..', 'wrangler.toml');
+
+    for (const p of [tomlPath, rootTomlPath]) {
+        if (!fs.existsSync(p)) continue;
+        let toml = fs.readFileSync(p, 'utf8');
+        if (/database_id\s*=\s*".*"/.test(toml)) {
+            toml = toml.replace(/database_id\s*=\s*".*"/, `database_id = "${dbId}"`);
+        } else {
+            toml = toml.replace(
+                /(\[\[d1_databases\]\]\nbinding = "DB"\ndatabase_name = "dognav")/,
+                `$1\ndatabase_id = "${dbId}"`
+            );
+        }
+        fs.writeFileSync(p, toml);
+    }
     console.log(`✓ wrangler.toml 已更新 (database_id = ${dbId})`);
 
     // ─── Step 5: Initialize database ───
