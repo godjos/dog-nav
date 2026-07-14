@@ -635,6 +635,20 @@ app.post('/api/health-check', requireAuth, async (c) => {
 });
 
 // ═══════════════════════════════════════════
+// ADMIN ROUTING
+// ═══════════════════════════════════════════
+
+app.get('/admin', async (c) => {
+    return c.env.ASSETS.fetch(new URL('/admin/index.html', c.req.url));
+});
+
+app.get('/admin/:page', async (c) => {
+    const page = c.req.param('page').replace(/[^a-z0-9-]/gi, '');
+    if (!page) return c.notFound();
+    return c.env.ASSETS.fetch(new URL(`/admin/${page}.html`, c.req.url));
+});
+
+// ═══════════════════════════════════════════
 // DYNAMIC PAGE ROUTING
 // ═══════════════════════════════════════════
 
@@ -643,6 +657,17 @@ app.get('/p/:slug', async (c) => {
     const page = await c.env.DB.prepare('SELECT id FROM pages WHERE id=?').bind(slug).first();
     if (!page) return c.notFound();
     return c.redirect(`/page.html?slug=${encodeURIComponent(slug)}`);
+});
+
+// ═══════════════════════════════════════════
+// FALLBACK TO STATIC ASSETS
+// ═══════════════════════════════════════════
+
+app.notFound(async (c) => {
+    if (c.req.path.startsWith('/api/')) {
+        return c.json({ error: 'Not found' }, 404);
+    }
+    return c.env.ASSETS.fetch(c.req.raw);
 });
 
 export default app;
