@@ -302,11 +302,14 @@
         .cat-bar {
             position: relative; z-index: 1;
             max-width: 1400px; margin: 0 auto var(--space-md);
-            padding: 0 var(--space-lg);
+            padding: 0 var(--space-lg) 8px;
             display: flex; gap: 6px; overflow-x: auto;
-            scrollbar-width: none;
+            scrollbar-width: thin;
+            scrollbar-color: var(--accent) var(--bg-card);
         }
-        .cat-bar::-webkit-scrollbar { display: none; }
+        .cat-bar::-webkit-scrollbar { height: 6px; }
+        .cat-bar::-webkit-scrollbar-track { background: var(--bg-card); border-radius: 3px; }
+        .cat-bar::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
         .cat-pill {
             flex-shrink: 0; padding: 6px 16px;
             background: var(--bg-card); border: 1px solid var(--border);
