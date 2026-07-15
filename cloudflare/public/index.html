@@ -304,12 +304,20 @@
             max-width: 1400px; margin: 0 auto var(--space-md);
             padding: 0 var(--space-lg) 8px;
             display: flex; gap: 6px; overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .cat-bar::-webkit-scrollbar { display: none; }
+        .cat-bar.show-scroll,
+        .cat-bar:hover {
             scrollbar-width: thin;
             scrollbar-color: var(--accent) var(--bg-card);
         }
-        .cat-bar::-webkit-scrollbar { height: 6px; }
-        .cat-bar::-webkit-scrollbar-track { background: var(--bg-card); border-radius: 3px; }
-        .cat-bar::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+        .cat-bar.show-scroll::-webkit-scrollbar,
+        .cat-bar:hover::-webkit-scrollbar { height: 6px; display: block; }
+        .cat-bar.show-scroll::-webkit-scrollbar-track,
+        .cat-bar:hover::-webkit-scrollbar-track { background: var(--bg-card); border-radius: 3px; }
+        .cat-bar.show-scroll::-webkit-scrollbar-thumb,
+        .cat-bar:hover::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
         .cat-pill {
             flex-shrink: 0; padding: 6px 16px;
             background: var(--bg-card); border: 1px solid var(--border);
@@ -1101,6 +1109,19 @@ window.addEventListener('load', () => setTimeout(() => document.getElementById('
     } catch (err) {
         // Pages dropdown stays hidden
     }
+
+    // Auto-hide category bar scrollbar until scrolling or hovering
+    function initCatBarScroll() {
+        const bar = document.getElementById('catBar');
+        if (!bar) return;
+        let scrollTimeout;
+        bar.addEventListener('scroll', () => {
+            bar.classList.add('show-scroll');
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => bar.classList.remove('show-scroll'), 1000);
+        });
+    }
+    initCatBarScroll();
 
     // Render with loaded data
     render();
