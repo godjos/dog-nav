@@ -530,6 +530,16 @@ app.put('/api/users/:id', requireAuth, async (c) => {
     return c.json({ message: 'User updated' });
 });
 
+app.delete('/api/users/:id', requireAuth, async (c) => {
+    const id = parseInt(c.req.param('id'), 10);
+    if (id === 1) {
+        return c.json({ error: 'Cannot delete default admin' }, 403);
+    }
+    await c.env.DB.prepare('DELETE FROM users WHERE id=?').bind(id).run();
+    await logAction(c.env.DB, c.get('userId'), 'delete_user', `Deleted user ID: ${id}`);
+    return c.json({ message: 'User deleted' });
+});
+
 // ═══════════════════════════════════════════
 // IMPORT / EXPORT API
 // ═══════════════════════════════════════════

@@ -1059,6 +1059,20 @@ app.put('/api/users/:id', requireAuth, (req, res) => {
     }
 });
 
+app.delete('/api/users/:id', requireAuth, (req, res) => {
+    try {
+        if (parseInt(req.params.id, 10) === 1) {
+            return res.status(403).json({ error: 'Cannot delete default admin' });
+        }
+        db.run("DELETE FROM users WHERE id=?", [req.params.id]);
+        logAction(req.userId, 'delete_user', `Deleted user ID: ${req.params.id}`);
+        saveDb();
+        res.json({ message: 'User deleted' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ═══════════════════════════════════════════
 // HEALTH CHECK API
 // ═══════════════════════════════════════════
