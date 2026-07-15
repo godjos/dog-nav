@@ -670,6 +670,17 @@ app.post('/api/import/bookmarks', requireAuth, async (c) => {
         return c.json({ error: 'No bookmarks found' }, 400);
     }
 
+    // Fill missing icons with a favicon service
+    sites.forEach(site => {
+        if (!site.icon) {
+            try {
+                site.icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
+            } catch (e) {
+                site.icon = '';
+            }
+        }
+    });
+
     // Avoid creating duplicates against existing sites
     const existingRows = await c.env.DB.prepare('SELECT url, category FROM sites').all();
     const existingKeys = new Set((existingRows.results || []).map(r => `${r.url}|${r.category}`));
