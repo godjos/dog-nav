@@ -932,8 +932,11 @@ function render(cat = 'all') {
     const f = cat === 'all' ? S : S.filter(s => (s.c || s.category) === cat);
     const g = {};
     f.forEach(s => { const k = s.c || s.category; if (!g[k]) g[k] = []; g[k].push(s); });
+    // Order categories by API category order first, then keep original appearance order for the rest
+    const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
     let h = '';
-    for (const [k, items] of Object.entries(g)) {
+    for (const k of orderedKeys) {
+        const items = g[k];
         const c = C[k] || { i: '📁', l: k };
         h += `<div class="sec-head rv"><div class="sec-ico">${c.i}</div><div class="sec-title">${c.l}</div><div class="sec-line"></div></div>
         <div class="card-grid">${items.map(s => {
@@ -941,7 +944,7 @@ function render(cat = 'all') {
             const url = s.u || s.url;
             const desc = s.d || s.description || '';
             const icon = s.i || s.icon || '🌐';
-            const iconHtml = icon.startsWith('http') ? `<img src="${icon}" style="width:20px;height:20px;border-radius:4px;object-fit:cover" onerror="this.outerHTML='🌐'">` : icon;
+            const iconHtml = icon.startsWith('http') ? `<img src="${icon}" data-url="${url}" style="width:20px;height:20px;border-radius:4px;object-fit:cover" onerror="this.src='https://www.google.com/s2/favicons?domain='+encodeURIComponent(new URL(this.dataset.url).hostname)+'&sz=64'; this.onerror=null;">` : icon;
             const id = s.id || '';
             const nf = s.nofollow ? 'noopener nofollow' : 'noopener';
             return `<a href="${url}" target="_blank" rel="${nf}" class="card rv" title="${name} — ${desc}" data-id="${id}" onclick="trackClick(event,'${id}','${url.replace(/'/g, "\\'")}')">

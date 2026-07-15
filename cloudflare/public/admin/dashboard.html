@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -274,7 +274,7 @@
             if (sites.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
             empty.style.display = 'none';
             tbody.innerHTML = sites.map(s => {
-                const iconHtml = s.icon ? (s.icon.startsWith('http') ? `<img class="site-icon-img" src="${s.icon}" onerror="this.style.display='none'">` : s.icon + ' ') : '';
+                const iconHtml = s.icon ? (s.icon.startsWith('http') ? `<img class="site-icon-img" src="${s.icon}" data-url="${s.url}" onerror="this.src='https://www.google.com/s2/favicons?domain='+encodeURIComponent(new URL(this.dataset.url).hostname)+'&sz=64'; this.onerror=null;">` : s.icon + ' ') : '';
                 return `
                 <tr>
                     <td><div class="site-name">${iconHtml}${s.name}</div></td>
