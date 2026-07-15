@@ -619,7 +619,7 @@ app.post('/api/import/bookmarks', requireAuth, async (c) => {
         if (!id) id = '未分类';
         if (!seenCatIds.has(id)) {
             seenCatIds.add(id);
-            categories.push({ id, name: id, icon: '', sort_order: 0 };
+            categories.push({ id, name: id, icon: '', sort_order: 0 });
         }
         return id;
     }
