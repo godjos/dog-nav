@@ -624,13 +624,14 @@ app.post('/api/import/bookmarks', requireAuth, (req, res) => {
         const sites = [];
         const seenCatIds = new Set();
         const seenSiteKeys = new Set();
+        let catOrder = -1000;
 
         function ensureCatId(title) {
             let id = String(title || '未分类').trim();
             if (!id) id = '未分类';
             if (!seenCatIds.has(id)) {
                 seenCatIds.add(id);
-                categories.push({ id, name: id, icon: '', sort_order: 0 });
+                categories.push({ id, name: id, icon: '', sort_order: catOrder++ });
             }
             return id;
         }
