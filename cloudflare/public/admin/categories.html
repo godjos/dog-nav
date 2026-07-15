@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -36,6 +36,7 @@
         .container { padding: 24px; }
         .toolbar { display: flex; justify-content: space-between; margin-bottom: 20px; }
         .btn-add { padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .btn-delete-all { padding: 10px 20px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
         .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
         .card-info { display: flex; align-items: center; gap: 16px; }
         .card-icon { font-size: 24px; }
@@ -99,7 +100,10 @@
         <div class="container">
             <div class="toolbar">
                 <div></div>
-                <button class="btn-add" onclick="openModal()">+ 添加分类</button>
+                <div>
+                    <button class="btn-delete-all" onclick="deleteAllCategories()">清空全部分类</button>
+                    <button class="btn-add" onclick="openModal()">+ 添加分类</button>
+                </div>
             </div>
             <div id="categoryList"></div>
         </div>
@@ -137,6 +141,20 @@
         if (!sessionStorage.getItem('admin_logged_in')) window.location.href = '/admin';
         function logout() { sessionStorage.removeItem('admin_logged_in'); sessionStorage.removeItem('admin_token'); window.location.href = '/admin'; }
         function authHeaders() { return { 'Authorization': 'Bearer ' + sessionStorage.getItem('admin_token'), 'Content-Type': 'application/json' }; }
+
+        function showToast(msg, type = 'success') {
+            let toast = document.getElementById('toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'toast';
+                toast.style.cssText = 'position:fixed;top:20px;right:20px;padding:12px 20px;background:#333;color:#fff;border-radius:8px;font-size:14px;z-index:9999;opacity:0;transition:opacity .3s;';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = msg;
+            toast.style.background = type === 'error' ? '#ef4444' : '#22c55e';
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+        }
 
         let allCats = [];
 
@@ -185,6 +203,18 @@
         async function deleteCategory(id) {
             if (!confirm('确定删除此分类？')) return;
             await fetch(`/api/categories/${id}`, { method: 'DELETE', headers: authHeaders() });
+            loadCategories();
+        }
+
+        async function deleteAllCategories() {
+            if (!confirm('警告：这将删除所有分类及下属站点，且不可恢复！')) return;
+            if (!confirm('再次确认：确定清空所有分类和站点？')) return;
+            const res = await fetch('/api/categories/all', { method: 'DELETE', headers: authHeaders() });
+            if (res.ok) {
+                showToast('已全部清空');
+            } else {
+                showToast('清空失败', 'error');
+            }
             loadCategories();
         }
 

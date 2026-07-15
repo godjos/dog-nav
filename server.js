@@ -473,6 +473,18 @@ app.put('/api/categories/:id', requireAuth, (req, res) => {
     }
 });
 
+app.delete('/api/categories/all', requireAuth, (req, res) => {
+    try {
+        db.run("DELETE FROM sites");
+        db.run("DELETE FROM categories");
+        logAction(req.userId, 'delete_all_categories', 'Deleted all categories and sites');
+        saveDb();
+        res.json({ message: 'All categories and sites deleted' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/api/categories/:id', requireAuth, (req, res) => {
     try {
         db.run("DELETE FROM categories WHERE id=?", [req.params.id]);
@@ -705,12 +717,33 @@ app.post('/api/import/bookmarks', requireAuth, (req, res) => {
         });
 
         let inserted = 0;
+        const insertedSites = [];
         sites.forEach(site => {
             if (existingKeys.has(`${site.url}|${site.category}`)) return;
             db.run("INSERT INTO sites (name, url, description, icon, category, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
                 [site.name, site.url, site.description || '', site.icon || '', site.category, site.sort_order || 0]);
             inserted++;
+            insertedSites.push(site);
         });
+
+        // Fetch real favicons for imported sites in the background
+        (async () => {
+            const limit = 5;
+            for (let i = 0; i < insertedSites.length; i += limit) {
+                const batch = insertedSites.slice(i, i + limit);
+                await Promise.all(batch.map(async (site) => {
+                    try {
+                        const meta = await fetchPageMeta(site.url, new URL(site.url).origin);
+                        if (meta.icon) {
+                            db.run("UPDATE sites SET icon=? WHERE url=? AND category=?", [meta.icon, site.url, site.category]);
+                        }
+                    } catch (e) {
+                        // Ignore fetch failures, keep the fallback icon
+                    }
+                }));
+            }
+            saveDb();
+        })();
 
         logAction(req.userId, 'import_bookmarks', `Imported ${inserted} new bookmarks into ${categories.length} categories`);
         saveDb();

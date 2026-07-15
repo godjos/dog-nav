@@ -225,18 +225,7 @@
                 <div class="form-group"><label>图标 (emoji 或 URL) <button type="button" class="btn-fetch-icon" id="fetchIconBtn" onclick="fetchIcon()" title="从URL自动获取图标">🔗 自动获取</button></label><input type="text" id="siteIcon" placeholder="🌐 或 https://..."></div>
                 <div class="form-group">
                     <label>分类 *</label>
-                    <select id="siteCategory" required>
-                        <option value="recommend">⭐ 常用推荐</option>
-                        <option value="video">🎬 影视资源</option>
-                        <option value="anime">🌸 动漫</option>
-                        <option value="software">💿 软件博客</option>
-                        <option value="tools">🔧 在线工具</option>
-                        <option value="news">📰 资讯</option>
-                        <option value="community">💬 社区</option>
-                        <option value="ai">🤖 AI 工具</option>
-                        <option value="dev">💻 开发编程</option>
-                        <option value="design">🎨 设计素材</option>
-                    </select>
+                    <select id="siteCategory" required></select>
                 </div>
                 <div class="form-group"><label>排序权重</label><input type="number" id="siteSort" value="0" min="0"></div>
                 <div class="modal-actions">
@@ -400,6 +389,24 @@
             loadSites();
         });
 
+        async function loadCategories() {
+            try {
+                const res = await fetch('/api/categories');
+                const cats = await res.json();
+                cats.filter(c => c.is_active).forEach(c => {
+                    CATEGORIES[c.id] = `${c.icon || '📁'} ${c.name}`;
+                });
+                const select = document.getElementById('siteCategory');
+                select.innerHTML = cats.filter(c => c.is_active).map(c =>
+                    `<option value="${c.id}">${CATEGORIES[c.id]}</option>`
+                ).join('');
+                if (allSites.length) renderSites(allSites);
+                updateCategoryFilter();
+            } catch (err) {
+                console.error('Failed to load categories', err);
+            }
+        }
+
         document.getElementById('searchBox').addEventListener('input', filterSites);
         document.getElementById('categoryFilter').addEventListener('change', filterSites);
 
@@ -413,6 +420,7 @@
         }
 
         document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
+        loadCategories();
         loadSites();
     </script>
 </body>

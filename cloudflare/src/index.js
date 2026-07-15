@@ -208,6 +208,13 @@ app.put('/api/categories/:id', requireAuth, async (c) => {
     return c.json({ message: 'Category updated' });
 });
 
+app.delete('/api/categories/all', requireAuth, async (c) => {
+    await c.env.DB.prepare('DELETE FROM sites').run();
+    await c.env.DB.prepare('DELETE FROM categories').run();
+    await logAction(c.env.DB, c.get('userId'), 'delete_all_categories', 'Deleted all categories and sites');
+    return c.json({ message: 'All categories and sites deleted' });
+});
+
 app.delete('/api/categories/:id', requireAuth, async (c) => {
     await c.env.DB.prepare('DELETE FROM categories WHERE id=?').bind(c.req.param('id')).run();
     await logAction(c.env.DB, c.get('userId'), 'delete_category', `Deleted category: ${c.req.param('id')}`);
@@ -691,11 +698,61 @@ app.post('/api/import/bookmarks', requireAuth, async (c) => {
             .bind(cat.id, cat.name, cat.icon || '', cat.sort_order || 0).run();
     }
     let inserted = 0;
+    const insertedSites = [];
     for (const site of sites) {
         if (existingKeys.has(`${site.url}|${site.category}`)) continue;
         await c.env.DB.prepare('INSERT INTO sites (name,url,description,icon,category,sort_order,updated_at) VALUES (?,?,?,?,?,?,datetime(\'now\'))')
             .bind(site.name, site.url, site.description || '', site.icon || '', site.category, site.sort_order || 0).run();
         inserted++;
+        insertedSites.push(site);
+    }
+
+    // Fetch real favicons for imported sites in the background
+    async function fetchRealIcon(pageUrl) {
+        try {
+            const origin = new URL(pageUrl).origin;
+            const resp = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, redirect: 'follow' });
+            const html = await resp.text();
+            const patterns = [
+                /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
+                /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
+                /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
+                /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
+            ];
+            let icon = origin + '/favicon.ico';
+            for (const pat of patterns) {
+                const m = html.match(pat);
+                if (m && m[1]) {
+                    let ico = m[1].trim();
+                    if (ico.startsWith('data:')) { icon = ico; break; }
+                    if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
+                    if (ico.startsWith('/')) { icon = origin + ico; break; }
+                    if (ico.startsWith('http')) { icon = ico; break; }
+                    icon = origin + '/' + ico;
+                    break;
+                }
+            }
+            return icon;
+        } catch (e) { return ''; }
+    }
+
+    async function updateIcons() {
+        const limit = 5;
+        for (let i = 0; i < insertedSites.length; i += limit) {
+            const batch = insertedSites.slice(i, i + limit);
+            await Promise.all(batch.map(async (site) => {
+                const icon = await fetchRealIcon(site.url);
+                if (icon) {
+                    await c.env.DB.prepare('UPDATE sites SET icon=? WHERE url=? AND category=?').bind(icon, site.url, site.category).run();
+                }
+            }));
+        }
+    }
+
+    if (c.executionCtx && c.executionCtx.waitUntil) {
+        c.executionCtx.waitUntil(updateIcons());
+    } else {
+        await updateIcons();
     }
 
     await logAction(c.env.DB, c.get('userId'), 'import_bookmarks', `Imported ${inserted} new bookmarks into ${categories.length} categories`);
