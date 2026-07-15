@@ -617,6 +617,97 @@ app.post('/api/import', requireAuth, (req, res) => {
     }
 });
 
+app.post('/api/import/bookmarks', requireAuth, (req, res) => {
+    try {
+        const data = req.body;
+        const categories = [];
+        const sites = [];
+        const seenCatIds = new Set();
+        const seenSiteKeys = new Set();
+
+        function ensureCatId(title) {
+            let id = String(title || '未分类').trim();
+            if (!id) id = '未分类';
+            if (!seenCatIds.has(id)) {
+                seenCatIds.add(id);
+                categories.push({ id, name: id, icon: '', sort_order: 0 });
+            }
+            return id;
+        }
+
+        function addSite(site) {
+            const key = `${site.url}|${site.category}`;
+            if (seenSiteKeys.has(key)) return;
+            seenSiteKeys.add(key);
+            sites.push(site);
+        }
+
+        function collect(node, parentCatId) {
+            if (!node) return;
+            if (Array.isArray(node)) {
+                node.forEach(n => collect(n, parentCatId));
+                return;
+            }
+            if (node.roots) {
+                Object.values(node.roots).forEach(n => collect(n, parentCatId));
+                return;
+            }
+            if (node.children || (!node.url && node.title !== undefined)) {
+                const catId = ensureCatId(node.title);
+                if (node.children) {
+                    node.children.forEach(child => collect(child, catId));
+                }
+            } else if (node.url) {
+                addSite({
+                    name: String(node.title || '未命名').trim(),
+                    url: String(node.url).trim(),
+                    description: '',
+                    icon: node.icon || '',
+                    category: parentCatId || ensureCatId('未分类'),
+                    sort_order: 0
+                });
+            }
+        }
+
+        if (Array.isArray(data)) {
+            data.forEach(n => collect(n));
+        } else if (data.roots) {
+            Object.values(data.roots).forEach(n => collect(n));
+        } else {
+            collect(data);
+        }
+
+        if (sites.length === 0) {
+            return res.status(400).json({ error: 'No bookmarks found' });
+        }
+
+        // Avoid creating duplicates against existing sites
+        const existingKeys = new Set();
+        const existingResult = db.exec("SELECT url, category FROM sites");
+        if (existingResult[0]) {
+            existingResult[0].values.forEach(row => existingKeys.add(`${row[0]}|${row[1]}`));
+        }
+
+        categories.forEach(cat => {
+            db.run("INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (?, ?, ?, ?)", [cat.id, cat.name, cat.icon || '', cat.sort_order || 0]);
+        });
+
+        let inserted = 0;
+        sites.forEach(site => {
+            if (existingKeys.has(`${site.url}|${site.category}`)) return;
+            db.run("INSERT INTO sites (name, url, description, icon, category, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+                [site.name, site.url, site.description || '', site.icon || '', site.category, site.sort_order || 0]);
+            inserted++;
+        });
+
+        logAction(req.userId, 'import_bookmarks', `Imported ${inserted} new bookmarks into ${categories.length} categories`);
+        saveDb();
+        res.json({ message: `Imported ${inserted} bookmarks`, categories: categories.length, sites: inserted });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ═══════════════════════════════════════════
 // FILE UPLOAD API
 // ═══════════════════════════════════════════
