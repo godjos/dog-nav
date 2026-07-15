@@ -532,8 +532,11 @@ app.put('/api/users/:id', requireAuth, async (c) => {
 
 app.delete('/api/users/:id', requireAuth, async (c) => {
     const id = parseInt(c.req.param('id'), 10);
-    if (id === 1) {
-        return c.json({ error: 'Cannot delete default admin' }, 403);
+    // Prevent deleting the last active admin to avoid lockout
+    const { count } = await c.env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE role='admin' AND is_active=1 AND id != ?")
+        .bind(id).first();
+    if (count === 0) {
+        return c.json({ error: 'Cannot delete the last active admin' }, 403);
     }
     await c.env.DB.prepare('DELETE FROM users WHERE id=?').bind(id).run();
     await logAction(c.env.DB, c.get('userId'), 'delete_user', `Deleted user ID: ${id}`);

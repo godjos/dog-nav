@@ -1061,11 +1061,15 @@ app.put('/api/users/:id', requireAuth, (req, res) => {
 
 app.delete('/api/users/:id', requireAuth, (req, res) => {
     try {
-        if (parseInt(req.params.id, 10) === 1) {
-            return res.status(403).json({ error: 'Cannot delete default admin' });
+        const id = parseInt(req.params.id, 10);
+        // Prevent deleting the last active admin to avoid lockout
+        const countResult = db.exec("SELECT COUNT(*) as count FROM users WHERE role='admin' AND is_active=1 AND id != ?", [id]);
+        const otherAdmins = countResult[0]?.values[0][0] || 0;
+        if (otherAdmins === 0) {
+            return res.status(403).json({ error: 'Cannot delete the last active admin' });
         }
-        db.run("DELETE FROM users WHERE id=?", [req.params.id]);
-        logAction(req.userId, 'delete_user', `Deleted user ID: ${req.params.id}`);
+        db.run("DELETE FROM users WHERE id=?", [id]);
+        logAction(req.userId, 'delete_user', `Deleted user ID: ${id}`);
         saveDb();
         res.json({ message: 'User deleted' });
     } catch (err) {
