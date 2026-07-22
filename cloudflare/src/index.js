@@ -505,9 +505,78 @@ app.get('/api/fetch-icon', async (c) => {
             if (m && m[1]) { description = m[1].trim(); break; }
         }
 
+        // Localize the icon as a data URI so the frontend doesn't depend on third-party servers
+        if (icon.startsWith('http')) {
+            const dataUri = await fetchIconAsDataUri(icon);
+            if (dataUri) icon = dataUri;
+        }
+
         return c.json({ icon, title, description });
     } catch (err) {
         return c.json({ icon: '', title: '', description: '' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// ICON LOCALIZATION
+// ═══════════════════════════════════════════
+
+function bufToBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+}
+
+// Download a remote icon and return it as a data URI (or null on failure)
+async function fetchIconAsDataUri(iconUrl) {
+    try {
+        if (!iconUrl.startsWith('http')) return null;
+        const resp = await fetch(iconUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': new URL(iconUrl).origin + '/' },
+            redirect: 'follow',
+        });
+        if (!resp.ok) return null;
+        let mime = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!mime.startsWith('image/')) {
+            const p = new URL(iconUrl).pathname.toLowerCase();
+            if (p.endsWith('.ico')) mime = 'image/x-icon';
+            else if (p.endsWith('.svg')) mime = 'image/svg+xml';
+            else if (p.endsWith('.png')) mime = 'image/png';
+            else if (p.endsWith('.jpg') || p.endsWith('.jpeg')) mime = 'image/jpeg';
+            else if (p.endsWith('.webp')) mime = 'image/webp';
+            else if (p.endsWith('.gif')) mime = 'image/gif';
+            else return null;
+        }
+        const buf = await resp.arrayBuffer();
+        if (!buf.byteLength || buf.byteLength > 32 * 1024) return null;
+        return `data:${mime};base64,${bufToBase64(buf)}`;
+    } catch { return null; }
+}
+
+// One-off repair: localize all externally hosted icons in sites/links
+app.post('/api/admin/localize-icons', requireAuth, async (c) => {
+    try {
+        const stats = { sites: { ok: 0, fail: 0 }, links: { ok: 0, fail: 0 } };
+        for (const table of ['sites', 'links']) {
+            const { results } = await c.env.DB.prepare(`SELECT id, icon FROM ${table} WHERE icon LIKE 'http%'`).all();
+            for (const row of results) {
+                const dataUri = await fetchIconAsDataUri(row.icon);
+                if (dataUri) {
+                    await c.env.DB.prepare(`UPDATE ${table} SET icon=? WHERE id=?`).bind(dataUri, row.id).run();
+                    stats[table].ok++;
+                } else {
+                    stats[table].fail++;
+                }
+            }
+        }
+        await logAction(c.env.DB, c.get('userId'), 'localize_icons', `sites ${stats.sites.ok} ok/${stats.sites.fail} fail, links ${stats.links.ok} ok/${stats.links.fail} fail`);
+        return c.json({ message: 'Done', ...stats });
+    } catch (err) {
+        return c.json({ error: err.message }, 500);
     }
 });
 

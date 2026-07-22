@@ -1083,6 +1083,11 @@ app.get('/api/fetch-icon', async (req, res) => {
     try {
         const origin = new URL(url).origin;
         const meta = await fetchPageMeta(url, origin);
+        // Localize the icon so the frontend doesn't depend on third-party servers
+        if (meta.icon && meta.icon.startsWith('http')) {
+            const localPath = await downloadIcon(meta.icon);
+            if (localPath) meta.icon = localPath;
+        }
         res.json(meta);
     } catch (err) {
         res.json({ icon: '', title: '', description: '' });
@@ -1152,6 +1157,98 @@ function parseMeta(html, origin) {
 
     return { icon, title, description };
 }
+
+// ═══════════════════════════════════════════
+// ICON LOCALIZATION
+// ═══════════════════════════════════════════
+
+const crypto = require('crypto');
+const ICON_DIR = path.join(UPLOAD_DIR, 'icons');
+if (!fs.existsSync(ICON_DIR)) {
+    fs.mkdirSync(ICON_DIR, { recursive: true });
+}
+
+const ICON_EXT_BY_MIME = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'image/x-icon': '.ico',
+    'image/vnd.microsoft.icon': '.ico',
+};
+
+// Download a remote icon into uploads/icons, return local path (or null on failure)
+function downloadIcon(iconUrl, redirects = 0) {
+    return new Promise((resolve) => {
+        if (!iconUrl.startsWith('http') || redirects > 3) return resolve(null);
+        let referer;
+        try { referer = new URL(iconUrl).origin + '/'; } catch { return resolve(null); }
+        const mod = iconUrl.startsWith('https') ? https : http;
+        const req = mod.get(iconUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': referer } }, (resp) => {
+            if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+                resp.resume();
+                let next;
+                try { next = new URL(resp.headers.location, iconUrl).href; } catch { return resolve(null); }
+                return resolve(downloadIcon(next, redirects + 1));
+            }
+            if (resp.statusCode !== 200) { resp.resume(); return resolve(null); }
+            const mime = (resp.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+            let ext = ICON_EXT_BY_MIME[mime];
+            if (!ext) {
+                try {
+                    const urlExt = path.extname(new URL(iconUrl).pathname).toLowerCase();
+                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico'].includes(urlExt)) ext = urlExt === '.jpeg' ? '.jpg' : urlExt;
+                } catch { /* keep ext undefined */ }
+            }
+            if (!ext) { resp.resume(); return resolve(null); }
+            const chunks = [];
+            let size = 0;
+            resp.on('data', chunk => {
+                size += chunk.length;
+                if (size > 500 * 1024) { resp.destroy(); resolve(null); return; }
+                chunks.push(chunk);
+            });
+            resp.on('end', () => {
+                try {
+                    if (!size) return resolve(null);
+                    const name = crypto.createHash('md5').update(iconUrl).digest('hex') + ext;
+                    fs.writeFileSync(path.join(ICON_DIR, name), Buffer.concat(chunks));
+                    resolve(`/uploads/icons/${name}`);
+                } catch { resolve(null); }
+            });
+            resp.on('error', () => resolve(null));
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+    });
+}
+
+// One-off repair: localize all externally hosted icons in sites/links
+app.post('/api/admin/localize-icons', requireAuth, async (req, res) => {
+    try {
+        const stats = { sites: { ok: 0, fail: 0 }, links: { ok: 0, fail: 0 } };
+        for (const table of ['sites', 'links']) {
+            const rows = db.exec(`SELECT id, icon FROM ${table} WHERE icon LIKE 'http%'`);
+            const entries = rows[0]?.values || [];
+            for (const [id, icon] of entries) {
+                let localPath = null;
+                try { localPath = await downloadIcon(icon); } catch { localPath = null; }
+                if (localPath) {
+                    db.run(`UPDATE ${table} SET icon=? WHERE id=?`, [localPath, id]);
+                    stats[table].ok++;
+                } else {
+                    stats[table].fail++;
+                }
+            }
+        }
+        saveDb();
+        logAction(req.userId, 'localize_icons', `sites ${stats.sites.ok} ok/${stats.sites.fail} fail, links ${stats.links.ok} ok/${stats.links.fail} fail`);
+        res.json({ message: 'Done', ...stats });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ═══════════════════════════════════════════
 // USERS API

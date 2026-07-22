@@ -250,11 +250,14 @@ function renderFriendLinks(links) {
     }
     grid.innerHTML = links.map(f => {
         const rawIcon = f.icon || f.i || '🔗';
-        const iconHtml = rawIcon.startsWith('http')
-            ? `<img src="${rawIcon}" style="width:32px;height:32px;border-radius:6px;object-fit:cover" onerror="this.outerHTML=''">`
-            : rawIcon;
         const desc = f.description || f.d || '';
         const name = f.name || f.n || '';
+        const isImgIcon = rawIcon.startsWith('http') || rawIcon.startsWith('/') || rawIcon.startsWith('data:');
+        const letter = encodeURIComponent([...(name || '网')][0]);
+        const iconFallback = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22%237f5af0%22 width=%2236%22 height=%2236%22 rx=%2218%22/><text x=%2218%22 y=%2224%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>${letter}</text></svg>`;
+        const iconHtml = isImgIcon
+            ? `<img src="${rawIcon}" style="width:32px;height:32px;border-radius:6px;object-fit:cover" onerror="this.onerror=null;this.src='${iconFallback}'">`
+            : rawIcon;
         const url = f.url || f.u || '#';
         return `<a href="${url}" target="_blank" rel="noopener" class="link-card rv">
             <div class="link-avatar">${iconHtml}</div>

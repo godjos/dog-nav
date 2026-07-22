@@ -944,7 +944,10 @@ function render(cat = 'all') {
             const url = s.u || s.url;
             const desc = s.d || s.description || '';
             const icon = s.i || s.icon || '🌐';
-            const iconHtml = icon.startsWith('http') ? `<img src="${icon}" data-url="${url}" style="width:20px;height:20px;border-radius:4px;object-fit:cover" onerror="this.src='https://www.google.com/s2/favicons?domain='+encodeURIComponent(new URL(this.dataset.url).hostname)+'&sz=64'; this.onerror=null;">` : icon;
+            const isImgIcon = icon.startsWith('http') || icon.startsWith('/') || icon.startsWith('data:');
+            const letter = encodeURIComponent([...(name || '网')][0]);
+            const iconFallback = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22%237f5af0%22 width=%2236%22 height=%2236%22 rx=%2218%22/><text x=%2218%22 y=%2224%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>${letter}</text></svg>`;
+            const iconHtml = isImgIcon ? `<img src="${icon}" style="width:20px;height:20px;border-radius:4px;object-fit:cover" onerror="this.onerror=null;this.src='${iconFallback}'">` : icon;
             const id = s.id || '';
             const nf = s.nofollow ? 'noopener nofollow' : 'noopener';
             return `<a href="${url}" target="_blank" rel="${nf}" class="card rv" title="${name} — ${desc}" data-id="${id}" onclick="trackClick(event,'${id}','${url.replace(/'/g, "\\'")}')">
