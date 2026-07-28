@@ -3,7 +3,7 @@ main = "cloudflare/src/index.js"
 compatibility_date = "2025-06-25"
 
 [assets]
-directory = "./cloudflare/public"
+directory = "./public"
 
 [[d1_databases]]
 binding = "DB"

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS sites (
     seo_title TEXT,
     seo_description TEXT,
     status TEXT DEFAULT 'active',
+    last_status TEXT,
+    last_check_at TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -45,7 +47,15 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT NOT NULL,
     role TEXT DEFAULT 'editor',
     is_active INTEGER DEFAULT 1,
+    must_change_password INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TEXT,
+    expires_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS settings (

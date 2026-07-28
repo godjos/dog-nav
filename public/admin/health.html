@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 站点检测</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .toolbar .stats { display: flex; gap: 16px; }
+        .toolbar .stat { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; user-select: none; border: 2px solid transparent; }
+        .toolbar .stat:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .toolbar .stat.active { border-color: currentColor; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+        .stat-all { background: #f5f5f5; color: #333; }
+        .stat-online { background: #e8f5e9; color: #2e7d32; }
+        .stat-offline { background: #ffebee; color: #c62828; }
+        .stat-slow { background: #fff3e0; color: #e65100; }
+        .stat-total { background: #e3f2fd; color: #1565c0; }
+        .stat-pending { background: #f5f5f5; color: #777; }
+        .health-toast {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+            background: #333; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px;
+            opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 2000;
+        }
+        .health-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .btn-check {
+            padding: 10px 24px; background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+            border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;
+            transition: all 0.2s; display: flex; align-items: center; gap: 8px;
+        }
+        .btn-check:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102,126,234,0.4); }
+        .btn-check:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        th { background: #f8f9fa; padding: 12px 16px; text-align: left; font-weight: 600; color: #555; font-size: 13px; position: sticky; top: 0; }
+        td { padding: 10px 16px; border-bottom: 1px solid #eee; font-size: 13px; vertical-align: middle; }
+        .site-name-cell { max-width: 200px; }
+        .site-name-cell .name { font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+        .site-name-cell .url { color: #999; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; margin-top: 2px; }
+        .badge { padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .badge-online { background: #e8f5e9; color: #2e7d32; }
+        .badge-offline { background: #ffebee; color: #c62828; }
+        .badge-slow { background: #fff3e0; color: #e65100; }
+        .badge-checking { background: #e3f2fd; color: #1565c0; }
+        .badge-pending { background: #f5f5f5; color: #999; }
+        .progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; margin-bottom: 16px; overflow: hidden; display: none; }
+        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 2px; transition: width 0.3s; width: 0%; }
+        
+        .btn-recheck { padding: 4px 10px; background: #e3f2fd; color: #1565c0; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-recheck:hover { background: #bbdefb; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #e0e0e0; border-top-color: #667eea; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">🐕</div>
+            <div class="text">Dog<span>Nav</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">内容管理</div>
+            <a href="/admin/dashboard"><span class="icon"></span> 站点管理</a>
+            <a href="/admin/categories"><span class="icon">📂</span> 分类管理</a>
+            <a href="/admin/pages"><span class="icon">📄</span> 页面管理</a>
+            <a href="/admin/links"><span class="icon">🔗</span> 友链管理</a>
+            <div class="nav-section">互动管理</div>
+            <a href="/admin/submissions"><span class="icon">📮</span> 提交审核</a>
+            <a href="/admin/health" class="active"><span class="icon">🩺</span> 站点检测</a>
+            <div class="nav-section">数据分析</div>
+            <a href="/admin/stats"><span class="icon">📊</span> 统计看板</a>
+            <a href="/admin/logs" data-role="admin"><span class="icon">📝</span> 操作日志</a>
+            <div class="nav-section">系统</div>
+            <a href="/admin/users" data-role="admin"><span class="icon">👥</span> 用户管理</a>
+            <a href="/admin/backup" data-role="admin"><span class="icon">💾</span> 备份恢复</a>
+            <a href="/admin/settings" data-role="admin"><span class="icon">⚙️</span> 系统设置</a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="#"><span class="icon">🚪</span> 退出登录</a>
+        </div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <h1>站点检测</h1>
+            <div class="user-info">
+                <div class="avatar">A</div>
+                <span>Admin</span>
+            </div>
+        </div>
+        <div class="container">
+            <div class="toolbar">
+                <div class="stats" id="statsBar">
+                    <span class="stat stat-all active" id="statAll">全部: 0</span>
+                    <span class="stat stat-online" id="statOnline">在线: 0</span>
+                    <span class="stat stat-slow" id="statSlow">缓慢: 0</span>
+                    <span class="stat stat-offline" id="statOffline">离线: 0</span>
+                    <span class="stat stat-pending" id="statPending">未检测: 0</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-check" id="btnCheckStale">
+                        <span>🕒</span> 检测长期未检查
+                    </button>
+                    <button class="btn-check" id="btnCheckAll">
+                        <span>💓</span> 检测全部站点
+                    </button>
+                </div>
+            </div>
+            <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+            <div class="table-card">
+                <table>
+                    <thead>
+                        <tr><th>网站</th><th>状态</th><th>响应时间</th><th>失败次数</th><th>最后检测</th><th>操作</th></tr>
+                    </thead>
+                    <tbody id="sitesBody"></tbody>
+                </table>
+                <div class="empty" id="emptyState" style="display:none">暂无站点</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/utils.js"></script>
+    <script src="/admin/auth.js"></script>
+    <script src="/admin/js/health.js"></script>
+</body>
+</html>

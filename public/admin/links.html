@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 友链管理</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .btn-add {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .btn-add:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102,126,234,0.4); }
+        .stats {
+            font-size: 14px;
+            color: #666;
+        }
+        .links-table {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        th {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            font-size: 13px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        tr:hover { background: #f8f9fa; }
+        .link-name { font-weight: 600; color: #333; }
+        .link-url { color: #667eea; font-size: 13px; }
+        .btn-edit, .btn-delete {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-right: 6px;
+        }
+        .btn-edit { background: #e3f2fd; color: #1976d2; }
+        .btn-edit:hover { background: #bbdefb; }
+        .btn-delete { background: #ffebee; color: #c62828; }
+        .btn-delete:hover { background: #ffcdd2; }
+
+        .modal {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 { margin-bottom: 20px; color: #333; }
+        .modal .form-group { margin-bottom: 16px; }
+        .modal label { display: block; margin-bottom: 6px; font-weight: 500; color: #555; font-size: 14px; }
+        .modal input, .modal textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .modal input:focus, .modal textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .modal textarea { resize: vertical; min-height: 60px; }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #333;
+            color: white;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s;
+            z-index: 1001;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.success { background: #22c55e; }
+        .toast.error { background: #ef4444; }
+
+        
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">🐕</div>
+            <div class="text">Dog<span>Nav</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">内容管理</div>
+            <a href="/admin/dashboard"><span class="icon">📋</span> 站点管理</a>
+            <a href="/admin/categories"><span class="icon">📂</span> 分类管理</a>
+            <a href="/admin/pages"><span class="icon">📄</span> 页面管理</a>
+            <a href="/admin/links" class="active"><span class="icon">🔗</span> 友链管理</a>
+            <div class="nav-section">互动管理</div>
+            <a href="/admin/submissions"><span class="icon">📮</span> 提交审核</a>
+            <a href="/admin/health"><span class="icon">🩺</span> 站点检测</a>
+            <div class="nav-section">数据分析</div>
+            <a href="/admin/stats"><span class="icon">📊</span> 统计看板</a>
+            <a href="/admin/logs" data-role="admin"><span class="icon">📝</span> 操作日志</a>
+            <div class="nav-section">系统</div>
+            <a href="/admin/users" data-role="admin"><span class="icon">👥</span> 用户管理</a>
+            <a href="/admin/backup" data-role="admin"><span class="icon">💾</span> 备份恢复</a>
+            <a href="/admin/settings" data-role="admin"><span class="icon">⚙️</span> 系统设置</a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="#"><span class="icon">🚪</span> 退出登录</a>
+        </div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <h1>友链管理</h1>
+            <div class="user-info">
+                <div class="avatar">A</div>
+                <span>Admin</span>
+            </div>
+        </div>
+        <div class="container">
+            <div class="toolbar">
+                <button class="btn-add" id="addLinkBtn">+ 添加友链</button>
+                <div class="stats" id="stats">共 0 个友链</div>
+            </div>
+
+            <div class="links-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>URL</th>
+                            <th>描述</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="linksTableBody">
+                    </tbody>
+                </table>
+                <div class="empty-state" id="emptyState" style="display:none">
+                    暂无友链
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <h2 id="modalTitle">添加友链</h2>
+            <form id="linkForm">
+                <input type="hidden" id="linkId">
+                <div class="form-group">
+                    <label>网站名称 *</label>
+                    <input type="text" id="linkName" required>
+                </div>
+                <div class="form-group">
+                    <label>URL *</label>
+                    <input type="url" id="linkUrl" required placeholder="https://">
+                </div>
+                <div class="form-group">
+                    <label>描述 <button type="button" class="btn-fetch-icon" id="fetchDescBtn" title="从URL自动获取名称和描述"> 自动获取</button></label>
+                    <textarea id="linkDesc"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>图标 (emoji 或 URL) <button type="button" class="btn-fetch-icon" id="fetchIconBtn" title="从URL自动获取图标">🔗 自动获取</button></label>
+                    <input type="text" id="linkIcon" placeholder="🌐 或 https://...">
+                </div>
+                <div class="form-group">
+                    <label>排序权重</label>
+                    <input type="number" id="linkSort" value="0" min="0">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="linkCancelBtn">取消</button>
+                    <button type="submit" class="btn-save">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/js/utils.js"></script>
+    <script src="/admin/auth.js"></script>
+    <script src="/admin/js/links.js"></script>
+</body>
+</html>

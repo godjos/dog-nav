@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 备份恢复</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        .card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card h2 { font-size: 18px; color: #333; margin-bottom: 16px; }
+        .card p { color: #666; font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
+        .btn { padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102,126,234,0.4); }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .file-input { display: none; }
+        .file-label { display: inline-block; padding: 12px 24px; background: #f0f0f0; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #333; }
+        .file-label:hover { background: #e0e0e0; }
+        .toast { position: fixed; top: 20px; right: 20px; padding: 16px 24px; background: #333; color: white; border-radius: 8px; font-size: 14px; opacity: 0; transition: all 0.3s; z-index: 1000; }
+        .toast.show { opacity: 1; }
+        .toast.success { background: #22c55e; }
+        .toast.error { background: #ef4444; }
+        
+    </style>
+</head>
+<body data-require-role="admin">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">🐕</div>
+            <div class="text">Dog<span>Nav</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">内容管理</div>
+            <a href="/admin/dashboard"><span class="icon">📋</span> 站点管理</a>
+            <a href="/admin/categories"><span class="icon">📂</span> 分类管理</a>
+            <a href="/admin/pages"><span class="icon">📄</span> 页面管理</a>
+            <a href="/admin/links"><span class="icon">🔗</span> 友链管理</a>
+            <div class="nav-section">互动管理</div>
+            <a href="/admin/submissions"><span class="icon">📮</span> 提交审核</a>
+            <a href="/admin/health"><span class="icon">🩺</span> 站点检测</a>
+            <div class="nav-section">数据分析</div>
+            <a href="/admin/stats"><span class="icon">📊</span> 统计看板</a>
+            <a href="/admin/logs" data-role="admin"><span class="icon">📝</span> 操作日志</a>
+            <div class="nav-section">系统</div>
+            <a href="/admin/users" data-role="admin"><span class="icon">👥</span> 用户管理</a>
+            <a href="/admin/backup" data-role="admin" class="active"><span class="icon">💾</span> 备份恢复</a>
+            <a href="/admin/settings" data-role="admin"><span class="icon">⚙️</span> 系统设置</a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="#"><span class="icon">🚪</span> 退出登录</a>
+        </div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <h1>备份恢复</h1>
+            <div class="user-info">
+                <div class="avatar">A</div>
+                <span>Admin</span>
+            </div>
+        </div>
+        <div class="container">
+            <div class="card">
+                <h2>导出数据</h2>
+                <p>将所有站点、分类、标签、友链、设置导出为 JSON 文件，可用于备份或迁移到其他服务器。</p>
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="exportBtn">导出 JSON</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>导入数据</h2>
+                <p>从 JSON 备份文件恢复数据。注意：导入将覆盖现有数据！</p>
+                <div class="btn-group">
+                    <label class="file-label" for="importFile">选择文件</label>
+                    <input type="file" id="importFile" class="file-input" accept=".json">
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>导入浏览器书签</h2>
+                <p>从 Chrome / Firefox / Edge 导出的书签 JSON 文件导入站点。会自动按文件夹生成分类，不会覆盖现有数据。</p>
+                <div class="btn-group">
+                    <label class="file-label" for="bookmarkFile">选择书签文件</label>
+                    <input type="file" id="bookmarkFile" class="file-input" accept=".json">
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/js/utils.js"></script>
+    <script src="/admin/auth.js"></script>
+    <script src="/admin/js/backup.js"></script>
+</body>
+</html>

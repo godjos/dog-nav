@@ -156,7 +156,7 @@ npm start
 # → http://localhost:3000
 ```
 
-**默认管理员：** `admin` / `admin123`
+**默认管理员：** 用户名 `admin`，首次启动时会生成随机初始密码并打印在服务日志中（仅显示一次），首次登录后必须修改。也可用环境变量 `INITIAL_ADMIN_PASSWORD` 指定初始密码。
 
 ### Cloudflare 自动部署（推荐）
 
@@ -253,45 +253,49 @@ npx wrangler deploy
 
 ```
 dog-nav/
-├── index.html              # 主页导航
-├── about.html              # 关于页面（CMS 驱动）
-├── links.html              # 友链页面（CMS 驱动）
-├── contribute.html          # 投稿页面（CMS 驱动）
-├── page.html               # 自定义页面模板（CMS 驱动）
+├── public/                 # 前端静态资源（唯一副本，Express 与 Workers 共用）
+│   ├── index.html          # 主页导航
+│   ├── about.html          # 关于页面（CMS 驱动）
+│   ├── links.html          # 友链页面（CMS 驱动）
+│   ├── contribute.html     # 投稿页面（CMS 驱动）
+│   ├── page.html           # 自定义页面模板（CMS 驱动）
+│   ├── css/                # style.css（玻璃拟态、主题）· font-awesome.css
+│   ├── js/                 # app.js 等前端逻辑（渲染、搜索、主题）
+│   ├── ico/                # 站点图标
+│   ├── admin/              # 后台管理（13 个页面）
+│   │   ├── index.html      # 登录页
+│   │   ├── dashboard.html  # 站点管理
+│   │   ├── categories.html # 分类管理
+│   │   ├── pages.html      # 页面管理（增删改查）
+│   │   ├── health.html     # 站点检测
+│   │   ├── ...             # （见后台管理章节）
+│   │   └── backup.html     # 备份恢复
+│   ├── robots.txt          # 搜索引擎规则
+│   └── sitemap.xml         # XML 站点地图
+│
 ├── server.js               # 本地 CMS 服务（Express + sql.js）
+├── lib/                    # Express 端共享模块（auth.js · netutils.js）
+├── seed.js                 # 业务数据播种脚本
 ├── deploy.js               # Cloudflare 一键部署脚本
-├── seed.js                 # 数据库初始化脚本
 ├── package.json            # Node.js 依赖（含 hono 供 CF 部署）
 ├── wrangler.toml           # Cloudflare Workers 配置（一键部署用）
+├── uploads/icons/          # 上传/抓取的图标（不入库）
 │
-├── css/
-│   ├── style.css           # 主样式表（玻璃拟态、主题）
-│   └── font-awesome.css    # 图标库
-├── js/
-│   └── app.js              # 前端逻辑（渲染、搜索、主题）
-├── ico/                    # 站点图标
-│
-├── admin/                  # 后台管理（13 个页面）
-│   ├── index.html          # 登录页
-│   ├── dashboard.html      # 站点管理
-│   ├── categories.html     # 分类管理
-│   ├── pages.html          # 页面管理（增删改查）
-│   ├── health.html         # 站点检测
-│   ├── ...                 # （见后台管理章节）
-│   └── backup.html         # 备份恢复
+├── test/                   # 测试：api · auth · contract（双运行时契约）
+├── docs/
+│   └── API_CONTRACT.md     # 双端 API 契约文档
 │
 ├── cloudflare/             # Cloudflare Workers 部署
 │   ├── src/
-│   │   └── index.js        # Hono API 后端 + 自动初始化
-│   ├── public/             # 静态资源（前端副本）
-│   ├── schema.sql          # D1 数据库结构（12 张表）
+│   │   ├── index.js        # Hono API 后端 + 自动初始化
+│   │   ├── auth.mjs        # 鉴权模块
+│   │   └── netutils.mjs    # 网络工具
+│   ├── schema.sql          # D1 数据库结构（13 张表）
 │   ├── seed.sql            # 种子数据（150+ 站点）
 │   ├── deploy.js           # 一键部署脚本
 │   ├── wrangler.toml       # Cloudflare 配置（手动部署用）
 │   └── package.json        # CF 依赖（hono, wrangler）
 │
-├── robots.txt              # 搜索引擎规则
-├── sitemap.xml             # XML 站点地图
 └── README.md               # 本文件
 ```
 

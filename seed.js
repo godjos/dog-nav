@@ -1,8 +1,23 @@
+// ═══════════════════════════════════════════
+// DogNav 业务数据播种脚本
+//
+// 用途：向数据库写入演示/初始业务数据（分类、站点、标签、友链、页面）。
+// 不负责任何账号/安全数据 —— 管理员账号由 server.js 在首次启动时根据
+// INITIAL_ADMIN_PASSWORD 环境变量创建。
+//
+// 用法：
+//   node seed.js                # 写入 ./dognav.db
+//   DB_PATH=/path/to.db node seed.js
+//
+// 行为：sites 表会先清空再全量写入；分类/标签/友链/页面仅在对应表为空时
+// 写入默认值。表结构（schema）与 server.js 保持一致，此处仅作
+// CREATE TABLE IF NOT EXISTS 兜底，正式建表以 server.js 启动为准。
+// ═══════════════════════════════════════════
 const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'dognav.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'dognav.db');
 
 // All sites from index.html
 const sites = [
@@ -178,6 +193,42 @@ const sites = [
     { n: '千库网', u: 'https://588ku.com', d: '免费PNG素材下载', i: '🖼️', c: 'design' },
 ];
 
+const categories = [
+    ['recommend', '常用推荐', '⭐', 1],
+    ['video', '影视资源', '🎬', 2],
+    ['anime', '动漫', '🌸', 3],
+    ['software', '软件博客', '💿', 4],
+    ['tools', '在线工具', '🔧', 5],
+    ['news', '资讯', '📰', 6],
+    ['community', '社区', '💬', 7],
+    ['ai', 'AI 工具', '🤖', 8],
+    ['dev', '开发编程', '💻', 9],
+    ['design', '设计素材', '🎨', 10],
+];
+
+const tags = [
+    ['常用', '#667eea'],
+    ['视频', '#e74c3c'],
+    ['工具', '#2ecc71'],
+    ['AI', '#9b59b6'],
+];
+
+const links = [
+    ['CangDog 博客', 'https://www.cangdog.com', '站长个人博客', '', 1],
+];
+
+const pages = [
+    ['about', '关于 DogNav', 'DogNav 是一个精选网址导航，收录了互联网上最优质的网站。'],
+    ['contribute', '提交站点', '如果你发现了好网站，欢迎提交给我们。'],
+    ['links', '友情链接', '以下是与本站有友好往来的网站。'],
+];
+
+// Table is empty?
+function isEmpty(db, table) {
+    const result = db.exec(`SELECT COUNT(*) FROM ${table}`);
+    return (result[0]?.values[0][0] || 0) === 0;
+}
+
 async function seed() {
     const SQL = await initSqlJs();
 
@@ -192,44 +243,116 @@ async function seed() {
         console.log('Created new database');
     }
 
-    // Create tables
+    // Schema fallback — must match server.js exactly; server.js is the
+    // authoritative owner and will create these on first start anyway.
     db.run(`CREATE TABLE IF NOT EXISTS sites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         url TEXT NOT NULL,
         description TEXT,
         icon TEXT,
+        screenshot TEXT,
         category TEXT NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        is_featured INTEGER DEFAULT 0,
+        click_count INTEGER DEFAULT 0,
+        nofollow INTEGER DEFAULT 0,
+        seo_title TEXT,
+        seo_description TEXT,
+        status TEXT DEFAULT 'active',
+        last_status TEXT,
+        last_check_at TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon TEXT,
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        color TEXT DEFAULT '#667eea'
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS site_tags (
+        site_id INTEGER,
+        tag_id INTEGER,
+        PRIMARY KEY (site_id, tag_id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        description TEXT,
+        icon TEXT,
         sort_order INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    db.run(`CREATE TABLE IF NOT EXISTS admin (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
+    db.run(`CREATE TABLE IF NOT EXISTS pages (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        content TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Insert default admin if not exists
-    const result = db.exec("SELECT COUNT(*) as count FROM admin");
-    const count = result[0]?.values[0][0] || 0;
-    if (count === 0) {
-        db.run("INSERT INTO admin (username, password) VALUES ('admin', 'admin123')");
-        console.log('Default admin created: admin / admin123');
+    // Categories: only when empty
+    if (isEmpty(db, 'categories')) {
+        const stmt = db.prepare("INSERT INTO categories (id, name, icon, sort_order) VALUES (?, ?, ?, ?)");
+        for (const [id, name, icon, sort] of categories) stmt.run([id, name, icon, sort]);
+        stmt.free();
+        console.log(`Seeded ${categories.length} categories`);
+    } else {
+        console.log('Categories not empty, skipped');
     }
 
-    // Clear existing sites and insert all
+    // Sites: always cleared and re-imported
     db.run("DELETE FROM sites");
-    console.log('Cleared existing sites');
-
-    const stmt = db.prepare("INSERT INTO sites (name, url, description, icon, category, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
-
+    db.run("DELETE FROM site_tags");
+    const stmt = db.prepare(`INSERT INTO sites (name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, status, updated_at)
+        VALUES (?, ?, ?, ?, '', ?, ?, 0, 0, '', '', 'active', datetime('now'))`);
     for (const site of sites) {
         stmt.run([site.n, site.u, site.d, site.i, site.c, 0]);
     }
     stmt.free();
-
     console.log(`Imported ${sites.length} sites`);
+
+    // Tags: only when empty
+    if (isEmpty(db, 'tags')) {
+        const tagStmt = db.prepare("INSERT INTO tags (name, color) VALUES (?, ?)");
+        for (const [name, color] of tags) tagStmt.run([name, color]);
+        tagStmt.free();
+        console.log(`Seeded ${tags.length} tags`);
+    } else {
+        console.log('Tags not empty, skipped');
+    }
+
+    // Friend links: only when empty
+    if (isEmpty(db, 'links')) {
+        const linkStmt = db.prepare("INSERT INTO links (name, url, description, icon, sort_order) VALUES (?, ?, ?, ?, ?)");
+        for (const [name, url, desc, icon, sort] of links) linkStmt.run([name, url, desc, icon, sort]);
+        linkStmt.free();
+        console.log(`Seeded ${links.length} friend links`);
+    } else {
+        console.log('Links not empty, skipped');
+    }
+
+    // Pages: only when empty
+    if (isEmpty(db, 'pages')) {
+        const pageStmt = db.prepare("INSERT INTO pages (id, title, content) VALUES (?, ?, ?)");
+        for (const [id, title, content] of pages) pageStmt.run([id, title, content]);
+        pageStmt.free();
+        console.log(`Seeded ${pages.length} pages`);
+    } else {
+        console.log('Pages not empty, skipped');
+    }
 
     // Save database
     const data = db.export();

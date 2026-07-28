@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 设置</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+            font-size: 14px;
+        }
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .form-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+        .form-group .hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .btn-save {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-save:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+        }
+        .btn-save:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #333;
+            color: white;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.success { background: #22c55e; }
+        .toast.error { background: #ef4444; }
+        .form-group input[type="color"] {
+            width: 64px; height: 40px; padding: 4px; cursor: pointer;
+        }
+        .form-check label {
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 500; color: #555; font-size: 14px; cursor: pointer;
+        }
+        .form-check input[type="checkbox"] {
+            width: auto; margin: 0; padding: 0; border: none;
+            accent-color: #667eea;
+        }
+        .perm-notice {
+            background: #fef3c7; border: 1px solid #f59e0b; color: #92400e;
+            border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px;
+        }
+        
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">🐕</div>
+            <div class="text">Dog<span>Nav</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">内容管理</div>
+            <a href="/admin/dashboard"><span class="icon">📋</span> 站点管理</a>
+            <a href="/admin/categories"><span class="icon">📂</span> 分类管理</a>
+            <a href="/admin/pages"><span class="icon">📄</span> 页面管理</a>
+            <a href="/admin/links"><span class="icon">🔗</span> 友链管理</a>
+            <div class="nav-section">互动管理</div>
+            <a href="/admin/submissions"><span class="icon">📮</span> 提交审核</a>
+            <a href="/admin/health"><span class="icon">🩺</span> 站点检测</a>
+            <div class="nav-section">数据分析</div>
+            <a href="/admin/stats"><span class="icon">📊</span> 统计看板</a>
+            <a href="/admin/logs" data-role="admin"><span class="icon">📝</span> 操作日志</a>
+            <div class="nav-section">系统</div>
+            <a href="/admin/users" data-role="admin"><span class="icon">👥</span> 用户管理</a>
+            <a href="/admin/backup" data-role="admin"><span class="icon">💾</span> 备份恢复</a>
+            <a href="/admin/settings" data-role="admin" class="active"><span class="icon">⚙️</span> 系统设置</a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="#"><span class="icon">🚪</span> 退出登录</a>
+        </div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <h1>系统设置</h1>
+            <div class="user-info">
+                <div class="avatar">A</div>
+                <span>Admin</span>
+            </div>
+        </div>
+        <div class="container">
+            <div class="perm-notice" id="permNotice" hidden>当前账号为编辑（editor）角色，仅管理员（admin）可查看与修改系统设置。</div>
+            <div class="card">
+                <h2>基本设置</h2>
+                <div class="form-group">
+                    <label>站点名称</label>
+                    <input type="text" id="site_name" placeholder="DogNav">
+                </div>
+                <div class="form-group">
+                    <label>站点描述</label>
+                    <input type="text" id="site_description" placeholder="发现互联网的无限精彩">
+                </div>
+                <div class="form-group">
+                    <label>站点图标 (Favicon)</label>
+                    <input type="url" id="site_icon" placeholder="https://example.com/favicon.ico">
+                    <div class="hint">浏览器标签页显示的图标 URL，建议 32x32 或 64x64</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>页脚设置</h2>
+                <div class="form-group">
+                    <label>页脚文字</label>
+                    <input type="text" id="footer_text" placeholder="DogNav © 2026 — Design by CangDog">
+                </div>
+                <div class="form-group">
+                    <label>博客链接</label>
+                    <input type="url" id="footer_blog_url" placeholder="https://www.cangdog.com">
+                    <div class="hint">留空则页脚不显示该链接</div>
+                </div>
+                <div class="form-group">
+                    <label>GitHub 链接</label>
+                    <input type="url" id="footer_github_url" placeholder="https://github.com/BYGD">
+                    <div class="hint">留空则页脚不显示该链接</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>主题颜色</h2>
+                <div class="form-group">
+                    <label>主色</label>
+                    <input type="color" id="theme_primary_color" value="#667eea">
+                </div>
+                <div class="form-group">
+                    <label>辅色</label>
+                    <input type="color" id="theme_secondary_color" value="#764ba2">
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>功能开关</h2>
+                <div class="form-group form-check">
+                    <label><input type="checkbox" id="submission_enabled"> 开放投稿（关闭后前台隐藏投稿入口并禁用投稿表单）</label>
+                </div>
+                <div class="form-group form-check">
+                    <label><input type="checkbox" id="weather_enabled"> 启用天气组件（首页显示「获取天气」）</label>
+                    <div class="hint">天气 API Key 由服务端环境变量 WEATHER_API_KEY 配置，无需在此填写。</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>修改密码</h2>
+                <div class="form-group">
+                    <label>当前密码</label>
+                    <input type="password" id="old_password">
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" id="new_password">
+                </div>
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="confirm_password">
+                </div>
+                <button class="btn-save" id="changePwdBtn">修改密码</button>
+            </div>
+
+            <button class="btn-save" id="saveSettingsBtn" style="width:100%; margin-top:20px;">保存所有设置</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="/js/utils.js"></script>
+    <script src="/admin/auth.js"></script>
+    <script src="/admin/js/settings.js"></script>
+</body>
+</html>

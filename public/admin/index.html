@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 管理后台 - 登录</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+        .login-box h1 {
+            text-align: center;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 24px;
+        }
+        .login-box .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #555;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .error-msg {
+            background: #fee;
+            color: #c33;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .error-msg.show { display: block; }
+        
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>🐕 DogNav</h1>
+        <p class="subtitle">管理后台登录</p>
+        <div class="error-msg" id="errorMsg"></div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" id="password" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn-login">登录</button>
+        </form>
+        <form id="changeForm" style="display:none">
+            <div class="form-group">
+                <label>当前密码</label>
+                <input type="password" id="oldPassword" required autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label>新密码（至少 8 位）</label>
+                <input type="password" id="newPassword" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label>确认新密码</label>
+                <input type="password" id="confirmPassword" required minlength="8" autocomplete="new-password">
+            </div>
+            <button type="submit" class="btn-login">修改密码并进入后台</button>
+            <p style="text-align:center; margin-top:15px; font-size:13px;">
+                <a href="#" id="backToLogin" style="color:#667eea; text-decoration:none;">返回登录</a>
+            </p>
+        </form>
+    </div>
+
+    <script src="/js/utils.js"></script>
+    <script src="/admin/js/index.js"></script>
+</body>
+</html>

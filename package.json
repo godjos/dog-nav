@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "test": "node --test test/",
+    "test:contract": "node --test test/contract.test.js",
     "deploy:cf": "node cloudflare/deploy.js",
     "deploy": "node cloudflare/deploy.js",
     "db:seed": "npx wrangler d1 execute dognav --remote --file=./cloudflare/schema.sql && npx wrangler d1 execute dognav --remote --file=./cloudflare/seed.sql",

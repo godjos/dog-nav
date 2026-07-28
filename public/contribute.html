@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提交收录 - DogNav</title>
+    <link rel="icon" href="/ico.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --text-xs: clamp(0.7rem, 0.65rem + 0.25vw, 0.78rem);
+            --text-sm: clamp(0.78rem, 0.73rem + 0.25vw, 0.88rem);
+            --text-base: clamp(0.88rem, 0.83rem + 0.25vw, 1rem);
+            --text-lg: clamp(1rem, 0.92rem + 0.4vw, 1.2rem);
+            --text-xl: clamp(1.15rem, 1rem + 0.6vw, 1.5rem);
+            --text-2xl: clamp(1.4rem, 1.15rem + 1.2vw, 2rem);
+            --text-3xl: clamp(1.8rem, 1.3rem + 2.5vw, 3rem);
+            --space-xs: clamp(0.2rem, 0.15rem + 0.25vw, 0.4rem);
+            --space-sm: clamp(0.4rem, 0.3rem + 0.4vw, 0.65rem);
+            --space-md: clamp(0.6rem, 0.4rem + 1vw, 1.2rem);
+            --space-lg: clamp(1rem, 0.6rem + 2vw, 2.5rem);
+            --space-xl: clamp(1.5rem, 0.8rem + 3.5vw, 4rem);
+            --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 9999px;
+            --ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        [data-theme="dark"] {
+            --bg-base: #131416; --bg-surface: #1c1e22;
+            --bg-card: #1c1e22; --bg-card-hover: #23262b;
+            --bg-nav: #131416; --bg-input: #23262b;
+            --text-1: #eceef1; --text-2: rgba(236,238,241,0.62); --text-3: rgba(236,238,241,0.38);
+            --accent: #5b8def; --accent-2: #e06c6c; --accent-3: #45b983;
+            --accent-soft: rgba(91,141,239,0.14); --accent-glow: rgba(91,141,239,0.3);
+            --border: rgba(255,255,255,0.09); --border-hover: rgba(255,255,255,0.18);
+            --shadow-card: 0 1px 2px rgba(0,0,0,0.25); --shadow-hover: 0 4px 16px rgba(0,0,0,0.4);
+        }
+        [data-theme="light"] {
+            --bg-base: #f5f6f8; --bg-surface: #ffffff;
+            --bg-card: #ffffff; --bg-card-hover: #ffffff;
+            --bg-nav: #ffffff; --bg-input: #eff1f4;
+            --text-1: #1f2329; --text-2: #565d69; --text-3: #9aa1ac;
+            --accent: #2563eb; --accent-2: #d95555; --accent-3: #1f9d66;
+            --accent-soft: rgba(37,99,235,0.08); --accent-glow: rgba(37,99,235,0.22);
+            --border: #e3e5ea; --border-hover: #c6cbd3;
+            --shadow-card: 0 1px 2px rgba(16,24,40,0.05); --shadow-hover: 0 4px 16px rgba(16,24,40,0.08);
+        }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+        body {
+            font-family: 'Sora', 'Noto Sans SC', system-ui, sans-serif;
+            background: var(--bg-base); color: var(--text-1);
+            min-height: 100dvh; overflow-x: hidden; line-height: 1.55;
+            transition: background 0.5s var(--ease), color 0.5s var(--ease);
+        }
+        .navbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: var(--space-md) var(--space-lg);
+            background: var(--bg-nav);
+            border-bottom: 1px solid var(--border); transition: background 0.5s var(--ease);
+        }
+        .logo { display: flex; align-items: center; gap: var(--space-sm); text-decoration: none; color: var(--text-1); }
+        .logo-ico { font-size: 1.5rem; }
+        .logo-text { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.02em; }
+        .logo-text span { color: var(--accent); }
+        .nav-right { display: flex; align-items: center; gap: var(--space-md); }
+        .nav-links { display: flex; list-style: none; gap: var(--space-xs); }
+        .nav-links a {
+            text-decoration: none; color: var(--text-2); font-size: var(--text-sm); font-weight: 500;
+            padding: var(--space-xs) var(--space-md); border-radius: var(--r-pill);
+            transition: all 0.3s var(--ease);
+        }
+        .nav-links a:hover, .nav-links a.active { color: var(--text-1); background: var(--accent-soft); }
+        .theme-btn {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-pill);
+            width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center;
+            justify-content: center; overflow: hidden; transition: all 0.3s var(--ease);
+        }
+        .theme-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+        .theme-btn i { font-style: normal; font-size: 1rem; transition: transform 0.4s var(--ease); }
+        [data-theme="dark"] .i-moon { display: none; }
+        [data-theme="light"] .i-sun { display: none; }
+        .mob-btn {
+            display: none; background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--r-sm); width: 36px; height: 36px; cursor: pointer;
+            align-items: center; justify-content: center; color: var(--text-1);
+        }
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none; flex-direction: column; position: absolute;
+                top: 100%; left: 0; right: 0; background: var(--bg-nav);
+                padding: var(--space-md);
+                border-bottom: 1px solid var(--border);
+            }
+            .nav-links.open { display: flex; }
+            .mob-btn { display: flex; }
+        }
+        .page-wrap {
+            position: relative; z-index: 1;
+            max-width: 700px; margin: 0 auto;
+            padding: calc(70px + var(--space-xl)) var(--space-lg) var(--space-xl);
+        }
+        .page-header { text-align: center; margin-bottom: var(--space-xl); }
+        .page-header h1 { font-size: var(--text-3xl); font-weight: 700; letter-spacing: -0.03em; margin-bottom: var(--space-sm); }
+        .page-header h1 .grad {
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .page-header p { color: var(--text-2); font-size: var(--text-base); max-width: 500px; margin: 0 auto; }
+
+        /* FORM */
+        .form-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--r-lg); padding: var(--space-lg);
+        }
+        .form-group { margin-bottom: var(--space-md); }
+        .form-group label {
+            display: block; font-size: var(--text-sm); font-weight: 500;
+            color: var(--text-2); margin-bottom: var(--space-xs);
+        }
+        .form-group label .req { color: var(--accent-2); }
+        .form-input, .form-select, .form-textarea {
+            width: 100%; padding: var(--space-sm) var(--space-md);
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: var(--r-md); color: var(--text-1);
+            font-family: inherit; font-size: var(--text-base);
+            transition: all 0.3s var(--ease); outline: none;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .form-input::placeholder, .form-textarea::placeholder { color: var(--text-3); }
+        .form-select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+        .form-select option { background: var(--bg-surface); color: var(--text-1); }
+        .form-textarea { min-height: 80px; resize: vertical; }
+        .form-hint { font-size: var(--text-xs); color: var(--text-3); margin-top: 4px; }
+
+        .submit-btn {
+            width: 100%; padding: var(--space-sm) var(--space-lg);
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: #fff; border: none; border-radius: var(--r-md);
+            font-family: inherit; font-size: var(--text-base); font-weight: 600;
+            cursor: pointer; transition: all 0.3s var(--ease);
+            letter-spacing: 0.5px;
+        }
+        .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px var(--accent-glow); }
+        .submit-btn:active { transform: translateY(0); }
+
+        /* RULES */
+        .rules-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--r-lg); padding: var(--space-lg);
+            margin-top: var(--space-md);
+        }
+        .rules-card h2 {
+            font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-md);
+            display: flex; align-items: center; gap: var(--space-sm);
+        }
+        .rules-list { list-style: none; }
+        .rules-list li {
+            position: relative; padding-left: 24px; margin-bottom: var(--space-sm);
+            font-size: var(--text-sm); color: var(--text-2); line-height: 1.6;
+        }
+        .rules-list li::before {
+            content: ''; position: absolute; left: 0; top: 8px;
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--accent-soft); border: 2px solid var(--accent);
+        }
+
+        /* CLOSED MSG */
+        .closed-msg {
+            text-align: center; padding: var(--space-lg);
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--r-lg); color: var(--text-2);
+            font-size: var(--text-base); margin-bottom: var(--space-md);
+        }
+
+        /* SUCCESS MSG */
+        .success-msg {
+            display: none; text-align: center; padding: var(--space-xl) var(--space-lg);
+        }
+        .success-msg.show { display: block; }
+        .success-msg .ico { font-size: 3rem; margin-bottom: var(--space-md); }
+        .success-msg h3 { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-sm); }
+        .success-msg p { color: var(--text-2); font-size: var(--text-base); }
+        .token-box {
+            display: flex; align-items: center; gap: var(--space-sm); justify-content: center;
+            margin: var(--space-md) auto; max-width: 420px;
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: var(--r-md); padding: var(--space-sm) var(--space-md);
+        }
+        .token-box code {
+            flex: 1; font-size: var(--text-sm); color: var(--accent);
+            word-break: break-all; text-align: left;
+        }
+        .token-copy {
+            flex-shrink: 0; padding: var(--space-xs) var(--space-md);
+            background: var(--accent-soft); color: var(--accent);
+            border: 1px solid var(--border); border-radius: var(--r-sm);
+            font-size: var(--text-sm); cursor: pointer; transition: all 0.3s var(--ease);
+        }
+        .token-copy:hover { border-color: var(--accent); }
+
+        /* HONEYPOT — 对真人不可见（定位到屏外），保留在 DOM 中 */
+        .hp-field {
+            position: absolute !important; left: -9999px !important; top: -9999px !important;
+            width: 1px; height: 1px; overflow: hidden; opacity: 0;
+            pointer-events: none;
+        }
+
+        /* STATUS QUERY */
+        .status-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--r-lg); padding: var(--space-lg);
+            margin-top: var(--space-md);
+        }
+        .status-card h2 {
+            font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-md);
+            display: flex; align-items: center; gap: var(--space-sm);
+        }
+        .status-row { display: flex; gap: var(--space-sm); }
+        .status-row .form-input { flex: 1; }
+        .status-btn {
+            flex-shrink: 0; padding: var(--space-sm) var(--space-lg);
+            background: var(--accent-soft); color: var(--accent);
+            border: 1px solid var(--border); border-radius: var(--r-md);
+            font-family: inherit; font-size: var(--text-base); font-weight: 600;
+            cursor: pointer; transition: all 0.3s var(--ease);
+        }
+        .status-btn:hover { border-color: var(--accent); }
+        .status-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .status-result { margin-top: var(--space-md); font-size: var(--text-sm); display: none; }
+        .status-result.show { display: block; }
+        .status-result .row { display: flex; padding: var(--space-xs) 0; border-bottom: 1px solid var(--border); }
+        .status-result .row:last-child { border-bottom: none; }
+        .status-result .k { flex-shrink: 0; width: 88px; color: var(--text-3); }
+        .status-result .v { color: var(--text-1); word-break: break-all; }
+        .status-badge { display: inline-block; padding: 2px 10px; border-radius: var(--r-pill); font-size: var(--text-xs); font-weight: 600; }
+        .status-badge.pending { background: var(--accent-soft); color: var(--accent); }
+        .status-badge.approved { background: rgba(44,182,125,0.15); color: var(--accent-3); }
+        .status-badge.rejected { background: rgba(225,97,98,0.15); color: var(--accent-2); }
+        .status-error { margin-top: var(--space-md); color: var(--accent-2); font-size: var(--text-sm); display: none; }
+        .status-error.show { display: block; }
+
+        .footer {
+            position: relative; z-index: 1; text-align: center; padding: var(--space-lg);
+            color: var(--text-3); font-size: var(--text-sm);
+            border-top: 1px solid var(--border); margin-top: var(--space-xl);
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .rv { opacity: 0; transform: translateY(16px); transition: opacity 0.5s var(--ease), transform 0.5s var(--ease); }
+        .rv.vis { opacity: 1; transform: none; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="index.html" class="logo"><div class="logo-ico">🐕</div><div class="logo-text">Dog<span>Nav</span></div></a>
+    <div class="nav-right">
+        <ul class="nav-links" id="navLinks">
+            <li><a href="index.html">首页</a></li>
+            <li><a href="links.html">友链</a></li>
+            <li><a href="about.html">关于</a></li>
+            <li><a href="contribute.html" class="active">提交</a></li>
+        </ul>
+        <button class="theme-btn" id="themeBtn" aria-label="切换主题"><i class="i-sun">☀️</i><i class="i-moon">🌙</i></button>
+        <button class="mob-btn" id="mobBtn" aria-label="菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
+    </div>
+</nav>
+
+<div class="page-wrap">
+    <div class="page-header rv">
+        <h1>提交 <span class="grad">收录</span></h1>
+        <p>发现了好网站？推荐给我们吧</p>
+    </div>
+
+    <div class="closed-msg" id="closedMsg" hidden>🚫 投稿已关闭，暂时不接受新的收录申请。</div>
+
+    <div class="form-card rv" id="formCard">
+        <form id="submitForm">
+            <div class="form-group">
+                <label>网站名称 <span class="req">*</span></label>
+                <input type="text" class="form-input" id="siteName" placeholder="例如：GitHub" required>
+            </div>
+            <div class="form-group">
+                <label>网站地址 <span class="req">*</span></label>
+                <input type="url" class="form-input" id="siteUrl" placeholder="https://example.com" required>
+                <div class="form-hint">请确保网址可以正常访问</div>
+            </div>
+            <div class="form-group">
+                <label>网站描述 <span class="req">*</span></label>
+                <input type="text" class="form-input" id="siteDesc" placeholder="一句话描述这个网站" required maxlength="50">
+                <div class="form-hint">简洁明了，不超过 50 字</div>
+            </div>
+            <div class="form-group">
+                <label>所属分类 <span class="req">*</span></label>
+                <select class="form-select" id="siteCat" required>
+                    <option value="">请选择分类</option>
+                    <option value="recommend">⭐ 常用推荐</option>
+                    <option value="video">🎬 影视资源</option>
+                    <option value="anime">🌸 动漫</option>
+                    <option value="software">💿 软件博客</option>
+                    <option value="tools">🔧 在线工具</option>
+                    <option value="news">📰 资讯</option>
+                    <option value="community">💬 社区</option>
+                    <option value="ai">🤖 AI 工具</option>
+                    <option value="dev">💻 开发编程</option>
+                    <option value="design">🎨 设计素材</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>推荐理由</label>
+                <textarea class="form-textarea" id="siteReason" placeholder="为什么推荐这个网站？（选填）"></textarea>
+            </div>
+            <div class="form-group">
+                <label>你的联系方式</label>
+                <input type="text" class="form-input" id="siteContact" placeholder="邮箱或 GitHub ID（选填）">
+                <div class="form-hint">方便我们通知你审核结果</div>
+            </div>
+            <div class="hp-field" aria-hidden="true">
+                <label>网站<input type="text" name="website" id="hpWebsite" tabindex="-1" autocomplete="off"></label>
+            </div>
+            <button type="submit" class="submit-btn">提交收录申请</button>
+        </form>
+    </div>
+
+    <div class="success-msg" id="successMsg">
+        <div class="ico">🎉</div>
+        <h3>提交成功！</h3>
+        <p>感谢你的推荐，我们会尽快审核处理。</p>
+        <div class="token-box">
+            <code id="trackingToken"></code>
+            <button type="button" class="token-copy" id="btnCopyToken">复制</button>
+        </div>
+        <p>请保存此凭证，可在下方「查询投稿进度」中查询审核进度。</p>
+    </div>
+
+    <div class="status-card rv">
+        <h2><span>🔍</span> 查询投稿进度</h2>
+        <div class="status-row">
+            <input type="text" class="form-input" id="statusToken" placeholder="输入提交成功时获得的查询凭证">
+            <button type="button" class="status-btn" id="btnQueryStatus">查询</button>
+        </div>
+        <div class="status-error" id="statusError"></div>
+        <div class="status-result" id="statusResult"></div>
+    </div>
+
+    <div class="rules-card rv">
+        <h2><span>📋</span> 收录标准</h2>
+        <ul class="rules-list">
+            <li>网站必须可以正常访问，且已运营 3 个月以上</li>
+            <li>内容健康合法，不含违法、暴力、色情等信息</li>
+            <li>网站应具有一定的实用价值或独特性</li>
+            <li>不接受纯导航站、SEO 站、垃圾采集站</li>
+            <li>提交后我们会在 3 个工作日内审核</li>
+            <li>审核通过后会在导航中展示，不通过会邮件通知</li>
+        </ul>
+    </div>
+</div>
+
+<footer class="footer"><p><span id="footerText">DogNav &copy; 2026 — Design by CangDog</span><span id="footerBlogWrap"> · <a id="footerBlogLink" href="https://www.cangdog.com" target="_blank" rel="noopener">博客</a></span><span id="footerGithubWrap"> · <a id="footerGithubLink" href="https://github.com/BYGD" target="_blank" rel="noopener">GitHub</a></span></p></footer>
+
+<script src="/js/utils.js"></script>
+<script src="/js/settings-loader.js"></script>
+<script src="/js/contribute.js"></script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav 页面管理</title>
+    <link href="https://cdn.quilljs.com/2.0.2/quill.snow.css" rel="stylesheet">
+    <link rel="stylesheet" href="/admin/admin.css">
+    <style>        .topbar .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .topbar .user-info { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #666; }
+        .topbar .avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 600; }
+        
+        .page-list { display: grid; gap: 16px; }
+        .page-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: relative; }
+        .page-card h3 { font-size: 16px; color: #333; margin-bottom: 8px; }
+        .page-card .page-id { font-size: 12px; color: #888; margin-bottom: 12px; }
+        .page-card .preview { color: #666; font-size: 14px; line-height: 1.6; margin-bottom: 16px; max-height: 100px; overflow: hidden; position: relative; }
+        .page-card .preview::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 40px; background: linear-gradient(transparent, white); }
+        .page-card .card-actions { display: flex; gap: 8px; }
+        .btn-edit { padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-edit:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102,126,234,0.4); }
+        .btn-delete { padding: 8px 16px; background: #fff; color: #ef4444; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .btn-delete:hover { background: #fef2f2; border-color: #ef4444; }
+        .btn-create { padding: 10px 20px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .btn-create:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(34,197,94,0.4); }
+        .btn-toggle { padding: 8px 16px; background: #fff; color: #1565c0; border: 1px solid #bbdefb; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .btn-toggle:hover { background: #e3f2fd; }
+        .badge-published { background: #e8f5e9; color: #2e7d32; }
+        .badge-draft { background: #fafafa; color: #999; }
+        .card-actions button:disabled, .btn-create:disabled, .btn-save:disabled, .btn-confirm-yes:disabled { opacity: 0.6; cursor: not-allowed; }
+        .modal select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; background: white; }
+
+        .modal { background: white; padding: 30px; border-radius: 12px; width: 95%; max-width: 900px; max-height: 92vh; overflow-y: auto; }
+        .modal-sm { max-width: 480px; }
+        .modal h2 { margin-bottom: 20px; color: #333; }
+        .modal .form-group { margin-bottom: 16px; }
+        .modal label { display: block; margin-bottom: 6px; font-weight: 500; color: #555; font-size: 14px; }
+        .modal input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+        .modal input[type="text"]:focus { outline: none; border-color: #7c83ff; }
+        .modal .hint { font-size: 12px; color: #999; margin-top: 4px; }
+        
+        .btn-cancel { padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .btn-save { padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; }
+
+        /* QUILL OVERRIDES */
+        .ql-toolbar { border-radius: 8px 8px 0 0; border-color: #e0e0e0 !important; }
+        .ql-container { border-radius: 0 0 8px 8px; border-color: #e0e0e0 !important; font-size: 15px; min-height: 300px; }
+        .ql-editor { min-height: 300px; line-height: 1.8; }
+        .ql-editor.ql-blank::before { color: #bbb; font-style: normal; }
+
+        .toast { position: fixed; top: 20px; right: 20px; padding: 16px 24px; background: #333; color: white; border-radius: 8px; font-size: 14px; opacity: 0; transform: translateY(-20px); transition: all 0.3s; z-index: 1100; }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: #22c55e; }
+        .toast.error { background: #ef4444; }
+
+        .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1200; }
+        .confirm-overlay.show { display: flex; }
+        .confirm-box { background: white; padding: 24px 30px; border-radius: 12px; text-align: center; max-width: 380px; width: 90%; }
+        .confirm-box p { margin-bottom: 20px; font-size: 15px; color: #333; }
+        .confirm-box .confirm-actions { display: flex; gap: 12px; justify-content: center; }
+        .btn-confirm-yes { padding: 8px 24px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-confirm-no { padding: 8px 24px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">🐕</div>
+            <div class="text">Dog<span>Nav</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">内容管理</div>
+            <a href="/admin/dashboard"><span class="icon">📋</span> 站点管理</a>
+            <a href="/admin/categories"><span class="icon">📂</span> 分类管理</a>
+            <a href="/admin/pages" class="active"><span class="icon">📄</span> 页面管理</a>
+            <a href="/admin/links"><span class="icon">🔗</span> 友链管理</a>
+            <div class="nav-section">互动管理</div>
+            <a href="/admin/submissions"><span class="icon">📮</span> 提交审核</a>
+            <a href="/admin/health"><span class="icon">🩺</span> 站点检测</a>
+            <div class="nav-section">数据分析</div>
+            <a href="/admin/stats"><span class="icon">📊</span> 统计看板</a>
+            <a href="/admin/logs" data-role="admin"><span class="icon">📝</span> 操作日志</a>
+            <div class="nav-section">系统</div>
+            <a href="/admin/users" data-role="admin"><span class="icon">👥</span> 用户管理</a>
+            <a href="/admin/backup" data-role="admin"><span class="icon">💾</span> 备份恢复</a>
+            <a href="/admin/settings" data-role="admin"><span class="icon">⚙️</span> 系统设置</a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="#"><span class="icon">🚪</span> 退出登录</a>
+        </div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <div class="topbar-left">
+                <h1>页面管理</h1>
+                <button class="btn-create" id="createPageBtn">+ 新建页面</button>
+            </div>
+            <div class="user-info">
+                <div class="avatar">A</div>
+                <span>Admin</span>
+            </div>
+        </div>
+        <div class="container">
+            <div class="page-list" id="pageList"></div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="editModalOverlay">
+        <div class="modal">
+            <h2 id="modalTitle">编辑页面</h2>
+            <div class="form-group">
+                <label>页面标题</label>
+                <input type="text" id="pageTitle" placeholder="输入页面标题">
+            </div>
+            <div class="form-group">
+                <label>发布状态</label>
+                <select id="pageStatus">
+                    <option value="published">已发布</option>
+                    <option value="draft">草稿</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>页面内容</label>
+                <div id="quillEditor"></div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="editCancelBtn">取消</button>
+                <button type="button" class="btn-save" id="savePageBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Modal -->
+    <div class="modal-overlay" id="createModalOverlay">
+        <div class="modal modal-sm">
+            <h2>新建页面</h2>
+            <div class="form-group">
+                <label>页面标识 (Slug)</label>
+                <input type="text" id="newPageSlug" placeholder="例如: guide, my-page, faq">
+                <div class="hint">仅允许小写字母、数字和连字符，如 "my-page"</div>
+            </div>
+            <div class="form-group">
+                <label>页面标题</label>
+                <input type="text" id="newPageTitle" placeholder="输入页面标题">
+            </div>
+            <div class="form-group">
+                <label>发布状态</label>
+                <select id="newPageStatus">
+                    <option value="published">已发布</option>
+                    <option value="draft">草稿</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="createCancelBtn">取消</button>
+                <button type="button" class="btn-save" id="createSubmitBtn">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm -->
+    <div class="confirm-overlay" id="confirmOverlay">
+        <div class="confirm-box">
+            <p id="confirmMsg">确定要删除此页面吗？此操作不可撤销。</p>
+            <div class="confirm-actions">
+                <button class="btn-confirm-no" id="confirmNoBtn">取消</button>
+                <button class="btn-confirm-yes" id="confirmYesBtn">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="https://cdn.quilljs.com/2.0.2/quill.js"></script>
+    <script src="/js/utils.js"></script>
+    <script src="/admin/auth.js"></script>
+    <script src="/admin/js/pages.js"></script>
+</body>
+</html>

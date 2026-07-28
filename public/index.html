@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DogNav - 精选网址导航 | 发现互联网的无限精彩</title>
+    <meta name="description" content="DogNav 精选网址导航，收录146+优质网站，涵盖影视、动漫、软件、工具、资讯、社区、AI、开发、设计等10大分类，让发现好网站变得简单。">
+    <meta name="keywords" content="网址导航,导航网站,精选导航,影视网站,动漫网站,AI工具,开发工具,设计素材,软件下载,在线工具">
+    <meta name="author" content="CangDog">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://nav.cangdog.com/">
+    <link rel="icon" href="/ico.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "DogNav",
+        "url": "https://nav.cangdog.com/",
+        "description": "精选网址导航，收录146+优质网站，涵盖影视、动漫、软件、工具、资讯、社区、AI、开发、设计等10大分类。",
+        "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://nav.cangdog.com/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+        }
+    }
+    </script>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="loader" id="loader">
+    <div class="loader-spinner"></div>
+    <div class="loader-label">DogNav</div>
+</div>
+
+<nav class="navbar">
+    <a href="index.html" class="logo">
+        <div class="logo-ico">🐕</div>
+        <div class="logo-text">Dog<span>Nav</span></div>
+    </a>
+    <div class="nav-right">
+        <ul class="nav-links" id="navLinks">
+            <li><a href="index.html" class="active">首页</a></li>
+            <li><a href="links.html">友链</a></li>
+            <li><a href="about.html">关于</a></li>
+            <li><a href="contribute.html">提交</a></li>
+            <li class="nav-dropdown" id="moreDropdown" style="display:none">
+                <a href="#">更多</a>
+                <ul class="nav-dropdown-menu" id="moreDropdownMenu"></ul>
+            </li>
+        </ul>
+        <button class="theme-btn" id="themeBtn" aria-label="切换主题">
+            <i class="i-sun">☀️</i><i class="i-moon">🌙</i>
+        </button>
+        <button class="mob-btn" id="mobBtn" aria-label="菜单">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="hero-tag"><span class="dot"></span>精选导航</div>
+    <h1 class="hero-title">发现互联网的 <span class="grad">无限精彩</span></h1>
+    <p class="hero-sub">精心收录每一个站点，让发现好网站变得简单</p>
+    <div class="hitokoto" id="hitokoto">"加载中..."</div>
+    <div class="search-box">
+        <input type="text" class="search-input" id="searchInput" placeholder="搜索站内站点或输入网址..." autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchPanel" aria-autocomplete="list">
+        <div class="search-panel" id="searchPanel" role="listbox" aria-label="站内搜索结果" hidden></div>
+        <button class="search-go" id="searchBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </button>
+    </div>
+    <div class="eng-row" id="engRow">
+        <button class="eng-btn on" data-engine="baidu">百度</button>
+        <button class="eng-btn" data-engine="google">Google</button>
+        <button class="eng-btn" data-engine="bing">Bing</button>
+        <button class="eng-btn" data-engine="github">GitHub</button>
+        <button class="eng-btn" data-engine="bilibili">B站</button>
+        <button class="eng-btn" data-engine="zhihu">知乎</button>
+    </div>
+</section>
+
+<div class="cat-bar" id="catBar">
+    <button class="cat-pill on" data-cat="all">🔥 全部</button>
+</div>
+
+<div class="cat-bar view-bar" id="viewBar">
+    <button class="cat-pill view-pill on" data-view="all">全部</button>
+    <button class="cat-pill view-pill" data-view="featured">⭐ 编辑精选</button>
+    <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
+    <button class="cat-pill view-pill" data-view="new">🆕 最近新增</button>
+    <button class="cat-pill view-pill" data-view="fav">❤️ 收藏</button>
+    <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
+    <span class="tag-chip" id="tagFilterChip" hidden></span>
+</div>
+
+<main class="cards-area" id="cardsArea"></main>
+
+<div class="weather-widget" id="weatherWidget">
+    <button class="weather-fetch" id="weatherBtn" type="button">📍 获取天气</button>
+    <div class="weather-content" id="weatherContent" hidden>
+        <div class="weather-city" id="weatherCity" hidden></div>
+        <div class="weather-main">
+            <div class="weather-icon" id="weatherIcon"></div>
+            <div class="weather-temp" id="weatherTemp"></div>
+        </div>
+        <div class="weather-desc" id="weatherDesc"></div>
+        <div class="weather-details">
+            <span id="weatherHumidity"></span>
+            <span id="weatherWind"></span>
+        </div>
+    </div>
+    <div class="weather-loading" id="weatherMsg" hidden></div>
+</div>
+
+<footer class="footer">
+    <p><span id="footerText">DogNav &copy; 2026 — Design by CangDog</span><span id="footerBlogWrap"> · <a id="footerBlogLink" href="https://www.cangdog.com" target="_blank" rel="noopener">博客</a></span><span id="footerGithubWrap"> · <a id="footerGithubLink" href="https://github.com/BYGD" target="_blank" rel="noopener">GitHub</a></span></p>
+    <p><button type="button" class="footer-clear" id="clearLocalData">清除本地数据（收藏 / 最近访问）</button></p>
+</footer>
+
+<button class="btt" id="btt" aria-label="回到顶部">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+</button>
+
+<script src="/js/utils.js"></script>
+<script src="/js/settings-loader.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

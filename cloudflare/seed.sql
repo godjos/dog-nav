@@ -1,10 +1,9 @@
 -- DogNav Seed Data for Cloudflare D1
 -- Generated from seed.js
 
--- ═══════════════════════════════════════════
--- 1. Default Admin User
--- ═══════════════════════════════════════════
-INSERT INTO users (username, password, role) VALUES ('admin', 'admin123', 'admin');
+-- NOTE: no admin user is seeded here. On first request the Worker creates
+-- one only when the INITIAL_ADMIN_PASSWORD env var is set (forced to change
+-- on first login). Seeding a well-known password would be a security hole.
 
 -- ═══════════════════════════════════════════
 -- 2. Default Categories (10)
@@ -24,18 +23,21 @@ INSERT INTO categories (id, name, icon, sort_order, is_active) VALUES
 -- ═══════════════════════════════════════════
 -- 3. Default Settings (11 key-value pairs)
 -- ═══════════════════════════════════════════
+-- NOTE: weather_api_key is seeded empty (no plaintext keys in the repo) and
+-- is never exposed publicly; the live key comes from the WEATHER_API_KEY
+-- environment variable. auto_nofollow was removed in phase 2.
 INSERT INTO settings (key, value) VALUES
 ('site_name', 'DogNav'),
 ('site_description', '发现互联网的无限精彩'),
-('weather_api_key', 'd7ebb8f4da72492f9ac290d366e8dab4'),
-('weather_enabled', 'true'),
+('site_icon', ''),
+('weather_api_key', ''),
+('weather_enabled', 'false'),
 ('footer_text', 'DogNav © 2026 — Design by CangDog'),
 ('footer_blog_url', 'https://www.cangdog.com'),
 ('footer_github_url', 'https://github.com/BYGD'),
 ('theme_primary_color', '#667eea'),
 ('theme_secondary_color', '#764ba2'),
-('submission_enabled', 'true'),
-('auto_nofollow', 'false');
+('submission_enabled', 'true');
 
 -- ═══════════════════════════════════════════
 -- 4. Default Pages (3)
