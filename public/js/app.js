@@ -101,9 +101,16 @@ function toast(text) {
 // ═══════════════════════════════════════════
 // RENDER — DOM API 构建，数据不拼 innerHTML
 // ═══════════════════════════════════════════
+// favicon 加载失败时的回退图标：按站名 hash 取柔和底色 + 首字母，
+// 圆角方块与卡片图标位对齐（避免圆形占位与容器形状冲突）。
+const FALLBACK_COLORS = ['#5b8def', '#45b983', '#e9a13b', '#e06c6c', '#8b7cf6', '#4ecdc4', '#ec8cbb', '#7fb069'];
 function iconFallbackUri(name) {
-    const letter = encodeURIComponent([...(name || '网')][0]);
-    return `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22%237f5af0%22 width=%2236%22 height=%2236%22 rx=%2218%22/><text x=%2218%22 y=%2224%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>${letter}</text></svg>`;
+    const str = name || '网';
+    let h = 0;
+    for (const ch of str) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    const color = encodeURIComponent(FALLBACK_COLORS[h % FALLBACK_COLORS.length]);
+    const letter = encodeURIComponent([...str][0]);
+    return `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22${color}%22 width=%2236%22 height=%2236%22 rx=%228%22/><text x=%2218%22 y=%2224%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>${letter}</text></svg>`;
 }
 
 const STATUS_META = {
@@ -181,7 +188,7 @@ function buildCard(s) {
         img.src = iconUrl;
         img.alt = '';
         img.loading = 'lazy';
-        img.style.cssText = 'width:20px;height:20px;border-radius:4px;object-fit:cover';
+        img.style.cssText = 'width:26px;height:26px;border-radius:6px;object-fit:cover';
         img.onerror = () => { img.onerror = null; img.src = iconFallbackUri(name); };
         fav.appendChild(img);
     } else {
@@ -191,13 +198,17 @@ function buildCard(s) {
     const nameEl = document.createElement('div');
     nameEl.className = 'card-name';
     nameEl.textContent = name;
-    row.append(fav, nameEl, buildStatusDot(s));
 
     const descEl = document.createElement('div');
     descEl.className = 'card-desc';
     descEl.textContent = desc;
 
-    a.append(row, descEl);
+    const textCol = document.createElement('div');
+    textCol.className = 'card-text';
+    textCol.append(nameEl, descEl);
+
+    row.append(fav, textCol, buildStatusDot(s));
+    a.append(row);
 
     if (Array.isArray(s.tags) && s.tags.length > 0) {
         const tagsRow = document.createElement('div');
