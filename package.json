@@ -1,6 +1,6 @@
 {
   "name": "dognav",
-  "version": "1.0.0",
+  "version": "3.1.0",
   "description": "DogNav - 精选网址导航",
   "main": "server.js",
   "scripts": {

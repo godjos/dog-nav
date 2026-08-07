@@ -10,7 +10,7 @@
 
 [![在线演示](https://img.shields.io/badge/在线演示-nav.cangdog.com-FF6B6B?style=flat-square)](https://nav.cangdog.com)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-dognav.ccgg.workers.dev-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://dognav.ccgg.workers.dev)
-[![版本](https://img.shields.io/badge/版本-3.0-4ECDC4?style=flat-square)]()
+[![版本](https://img.shields.io/badge/版本-3.1.0-4ECDC4?style=flat-square)]()
 [![收录站点](https://img.shields.io/badge/收录站点-150+-45B7D1?style=flat-square)]()
 [![分类](https://img.shields.io/badge/分类-10-96CEB4?style=flat-square)]()
 [![开源协议](https://img.shields.io/badge/开源协议-未指定-FFEAA7?style=flat-square)]()
