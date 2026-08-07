@@ -15,4 +15,4 @@ binding = "DB"
 database_name = "dognav"
 # Same dognav D1 database as cloudflare/wrangler.toml; cloudflare/deploy.js
 # keeps the database_id in both files in sync on each deploy.
-database_id = "84b114ec-d76d-47cb-92cb-0e807a41679e"
+database_id = "00833ec3-5fc0-4295-bd7b-2e802b876049"

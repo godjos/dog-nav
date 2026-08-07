@@ -13,4 +13,4 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "dognav"
-database_id = "84b114ec-d76d-47cb-92cb-0e807a41679e"
+database_id = "00833ec3-5fc0-4295-bd7b-2e802b876049"
