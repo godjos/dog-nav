@@ -141,7 +141,7 @@
             btn.disabled = true;
             btn.textContent = '⏳ 获取中...';
             try {
-                const res = await fetch('/api/fetch-icon?url=' + encodeURIComponent(url));
+                const res = await fetch('/api/fetch-icon?url=' + encodeURIComponent(url), { headers: authHeaders() });
                 const data = await res.json();
                 if (data.icon) {
                     iconInput.value = data.icon;
@@ -165,7 +165,7 @@
             btn.disabled = true;
             btn.textContent = '⏳ 获取中...';
             try {
-                const res = await fetch('/api/fetch-icon?url=' + encodeURIComponent(url));
+                const res = await fetch('/api/fetch-icon?url=' + encodeURIComponent(url), { headers: authHeaders() });
                 const data = await res.json();
                 let filled = 0;
                 if (data.description && !descInput.value.trim()) { descInput.value = data.description; filled++; }

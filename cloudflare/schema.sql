@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS sites (
     status TEXT DEFAULT 'active',
     last_status TEXT,
     last_check_at TEXT,
+    consecutive_failures INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -89,6 +90,9 @@ CREATE TABLE IF NOT EXISTS submissions (
     category TEXT,
     submitter_email TEXT,
     status TEXT DEFAULT 'pending',
+    tracking_token TEXT,
+    review_note TEXT,
+    normalized_url TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     reviewed_at DATETIME,
     reviewed_by INTEGER
@@ -99,6 +103,8 @@ CREATE TABLE IF NOT EXISTS reports (
     site_id INTEGER,
     reason TEXT,
     reporter_email TEXT,
+    detail TEXT,
+    reporter_ip TEXT,
     status TEXT DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     resolved_at DATETIME,

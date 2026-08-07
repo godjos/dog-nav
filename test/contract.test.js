@@ -323,11 +323,14 @@ const CASES = [
         expectStatus: 200,
         expectFields: { id: 'number', message: 'string' },
         async check(res, state, ctx) {
-            // Express currently responds {"id":0} (last_insert_rowid quirk pinned in
-            // api.test.js), so resolve the real id through the public list.
+            // Both runtimes return the real insert id now (Express used to
+            // respond {"id":0} — a last_insert_rowid-after-log-insert quirk).
+            assert.ok(Number.isInteger(res.body.id) && res.body.id > 0,
+                `real id returned, got ${res.body.id}`);
             const list = await ctx.api('GET', '/api/sites');
             const site = list.body.find((s) => s.url === 'https://contract-site.example');
             assert.ok(site, 'created site visible in public list');
+            assert.equal(site.id, res.body.id, 'response id matches the public list id');
             state.siteId = site.id;
         },
     },

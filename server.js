@@ -87,8 +87,15 @@ app.use((req, res, next) => {
 
 const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : false }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Default JSON body cap is 2mb; the import routes accept full backups and get
+// their own larger parser below (registered before this catch-all).
+const jsonParser = express.json({ limit: '2mb' });
+app.use((req, res, next) => {
+    if (req.path === '/api/import' || req.path === '/api/import/bookmarks') return next();
+    return jsonParser(req, res, next);
+});
+app.use('/api/import', express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOAD_DIR));
 
@@ -460,7 +467,8 @@ app.post('/api/auth/login', (req, res) => {
             user: { id: user.id, username: user.username, role: user.role }
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -470,7 +478,8 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Logged out' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -485,7 +494,8 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
         const [id, username, role, mustChange] = result[0].values[0];
         res.json({ id, username, role, mustChangePassword: !!mustChange });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -513,7 +523,8 @@ app.put('/api/auth/password', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Password changed' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -540,7 +551,8 @@ app.get('/api/sites', (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -554,12 +566,16 @@ app.post('/api/sites', requireAuth, (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
         stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '']);
         stmt.free();
+        // Read the rowid immediately after the insert — logAction()/saveDb()
+        // run further statements that would clobber last_insert_rowid().
+        const idResult = db.exec("SELECT last_insert_rowid() as id");
+        const id = idResult[0]?.values[0][0] || 0;
         logAction(req.userId, 'create_site', `Created site: ${name}`);
         saveDb();
-        const idResult = db.exec("SELECT last_insert_rowid() as id");
-        res.json({ id: idResult[0]?.values[0][0] || 0, message: 'Site added' });
+        res.json({ id, message: 'Site added' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -573,7 +589,8 @@ app.put('/api/sites/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Site updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -584,7 +601,8 @@ app.delete('/api/sites/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Site deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -611,6 +629,10 @@ app.post('/api/sites/batch', requireAuth, (req, res) => {
                     return res.status(400).json({ error: `Invalid field: ${f}` });
                 }
             }
+            // Empty data would build "UPDATE sites SET  WHERE ..." — reject it.
+            if (fields.length === 0) {
+                return res.status(400).json({ error: 'No fields to update' });
+            }
             const setClause = fields.map(f => `${f}=?`).join(',');
             const values = fields.map(f => data[f]).concat(ids);
             const placeholders = ids.map(() => '?').join(',');
@@ -622,14 +644,19 @@ app.post('/api/sites/batch', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: `Batch ${action} completed`, count: ids.length });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Click tracking
+// Click tracking (public; throttled per IP to blunt click-inflation abuse)
+const clickLimiter = createHourlyLimiter(60);
 app.post('/api/sites/:id/click', (req, res) => {
     try {
-        const ip = req.ip || req.connection.remoteAddress;
+        const ip = getClientIp(req);
+        if (!clickLimiter(ip)) {
+            return res.status(429).json({ error: 'Too many requests' });
+        }
         const ua = req.headers['user-agent'] || '';
         const ref = req.headers.referer || '';
         
@@ -638,7 +665,8 @@ app.post('/api/sites/:id/click', (req, res) => {
         saveDb();
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -655,7 +683,8 @@ app.get('/api/categories', (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -668,7 +697,8 @@ app.post('/api/categories', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Category created' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -680,7 +710,8 @@ app.put('/api/categories/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Category updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -692,7 +723,8 @@ app.delete('/api/categories/all', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'All categories and sites deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -703,7 +735,8 @@ app.delete('/api/categories/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Category deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -720,7 +753,8 @@ app.get('/api/tags', (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -737,7 +771,8 @@ app.post('/api/tags', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Tag created' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -761,7 +796,8 @@ app.put('/api/tags/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Tag updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -777,7 +813,8 @@ app.delete('/api/tags/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Tag deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -793,7 +830,8 @@ app.post('/api/sites/:id/tags', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Tags updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -837,7 +875,8 @@ app.get('/api/export', requireAdmin, (req, res) => {
         logAction(req.userId, 'export', 'Database exported');
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -949,7 +988,8 @@ app.post('/api/import', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'Import completed', counts, skippedSettings });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1018,16 +1058,8 @@ app.post('/api/import/bookmarks', requireAdmin, (req, res) => {
             return res.status(400).json({ error: 'No bookmarks found' });
         }
 
-        // Fill missing icons with a favicon service
-        sites.forEach(site => {
-            if (!site.icon) {
-                try {
-                    site.icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
-                } catch (e) {
-                    site.icon = '';
-                }
-            }
-        });
+        // 缺失图标留空：前端会显示首字母占位，真实图标由下方后台任务抓取。
+        // 不填第三方 favicon 服务（如 google s2，国内不可达），避免引入外链依赖。
 
         // Avoid creating duplicates against existing sites
         const existingKeys = new Set();
@@ -1060,13 +1092,14 @@ app.post('/api/import/bookmarks', requireAdmin, (req, res) => {
                         const meta = await fetchPageMeta(site.url, new URL(site.url).origin);
                         if (meta.icon && meta.icon.startsWith('http')) {
                             const localPath = await downloadIcon(meta.icon);
-                            if (localPath) meta.icon = localPath;
+                            // 下载失败说明远程图标不可用，置空而不是留死链
+                            meta.icon = localPath || '';
                         }
                         if (meta.icon) {
                             db.run("UPDATE sites SET icon=? WHERE url=? AND category=?", [meta.icon, site.url, site.category]);
                         }
                     } catch (e) {
-                        // Ignore fetch failures, keep the fallback icon
+                        // Ignore fetch failures, icon stays empty (frontend letter fallback)
                     }
                 }));
             }
@@ -1077,7 +1110,8 @@ app.post('/api/import/bookmarks', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: `Imported ${inserted} bookmarks`, categories: categories.length, sites: inserted });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1117,7 +1151,8 @@ app.get('/api/submissions', requireAuth, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1199,7 +1234,8 @@ app.post('/api/submissions', (req, res) => {
         saveDb();
         res.json({ message: 'Submission received', trackingToken });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1215,7 +1251,8 @@ app.get('/api/submissions/status/:token', (req, res) => {
         const [name, url, status, review_note, created_at, reviewed_at] = result[0].values[0];
         res.json({ name, url, status, review_note, created_at, reviewed_at });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1258,7 +1295,8 @@ app.put('/api/submissions/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Submission updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1275,7 +1313,8 @@ app.get('/api/reports', requireAuth, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1300,7 +1339,8 @@ app.post('/api/reports', (req, res) => {
         saveDb();
         res.json({ message: 'Report received' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1322,7 +1362,8 @@ app.put('/api/reports/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Report updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1348,7 +1389,8 @@ app.get('/api/stats/overview', requireAuth, (req, res) => {
             pending_reports: pendingReports
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1361,7 +1403,8 @@ app.get('/api/stats/popular', requireAuth, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1374,7 +1417,8 @@ app.get('/api/stats/category-distribution', requireAuth, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1391,7 +1435,8 @@ app.get('/api/logs', requireAdmin, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1462,7 +1507,8 @@ app.get('/api/settings', (req, res) => {
         });
         res.json(settings);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1471,7 +1517,8 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
     try {
         res.json(getAllSettings());
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1481,7 +1528,8 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
         if (err) return res.status(400).json({ error: err });
         res.json({ message: 'Settings updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1494,7 +1542,8 @@ app.put('/api/settings', requireAdmin, (req, res) => {
         res.set('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT');
         res.json({ message: 'Settings updated', deprecated: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1585,7 +1634,8 @@ app.post('/api/weather', async (req, res) => {
         }
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1603,7 +1653,8 @@ app.get('/api/pages', (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1617,7 +1668,8 @@ app.get('/api/admin/pages', requireAuth, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1631,7 +1683,8 @@ app.get('/api/pages/:id', (req, res) => {
         result[0].columns.forEach((col, i) => obj[col] = result[0].values[0][i]);
         res.json(obj);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1647,7 +1700,8 @@ app.put('/api/pages/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Page updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1669,7 +1723,8 @@ app.post('/api/pages', requireAuth, (req, res) => {
         saveDb();
         res.status(201).json({ message: 'Page created', id });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1684,7 +1739,8 @@ app.delete('/api/pages/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Page deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1701,7 +1757,8 @@ app.get('/api/links', (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1715,7 +1772,8 @@ app.post('/api/links', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Link added' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1728,7 +1786,8 @@ app.put('/api/links/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Link updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1739,7 +1798,8 @@ app.delete('/api/links/:id', requireAuth, (req, res) => {
         saveDb();
         res.json({ message: 'Link deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1750,17 +1810,19 @@ app.delete('/api/links/:id', requireAuth, (req, res) => {
 const https = require('https');
 const http = require('http');
 
-app.get('/api/fetch-icon', async (req, res) => {
+app.get('/api/fetch-icon', requireAuth, async (req, res) => {
     const url = req.query.url;
     if (!url) return res.status(400).json({ error: 'Missing url parameter' });
 
     try {
         const origin = new URL(url).origin;
         const meta = await fetchPageMeta(url, origin);
-        // Localize the icon so the frontend doesn't depend on third-party servers
+        // Localize the icon so the frontend doesn't depend on third-party servers.
+        // If the remote icon can't be downloaded (404, timeout, etc.), drop it —
+        // storing a dead URL would leave the frontend on its fallback forever.
         if (meta.icon && meta.icon.startsWith('http')) {
             const localPath = await downloadIcon(meta.icon);
-            if (localPath) meta.icon = localPath;
+            meta.icon = localPath || '';
         }
         res.json(meta);
     } catch (err) {
@@ -1768,25 +1830,60 @@ app.get('/api/fetch-icon', async (req, res) => {
     }
 });
 
-function fetchPageMeta(pageUrl, origin) {
+const FETCH_ICON_MAX_REDIRECTS = 3;
+
+function emptyMeta(origin) {
+    return { icon: (origin || '') + '/favicon.ico', title: '', description: '' };
+}
+
+// Fetch a page's icon/title/description, following redirects manually.
+// Every hop (initial URL and each redirect target) must pass the DNS-level
+// isPrivateHost check so the endpoint can't be abused for SSRF against
+// loopback/private/reserved addresses.
+async function fetchPageMeta(pageUrl, origin, hops = 0) {
+    let currentUrl = pageUrl;
+    let currentOrigin = origin;
+    for (let hop = 0; hop <= FETCH_ICON_MAX_REDIRECTS; hop++) {
+        let parsed;
+        try { parsed = new URL(currentUrl); } catch { return emptyMeta(origin); }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return emptyMeta(origin);
+        if (await isPrivateHost(parsed.hostname)) return emptyMeta(origin);
+        currentOrigin = parsed.origin;
+        const result = await fetchPageMetaOnce(currentUrl, currentOrigin);
+        if (result.redirect) {
+            currentUrl = result.redirect;
+            continue;
+        }
+        return result.meta;
+    }
+    return emptyMeta(currentOrigin);
+}
+
+// Single HTTP GET; resolves to { meta } or { redirect } (validated, absolute).
+function fetchPageMetaOnce(pageUrl, origin) {
     return new Promise((resolve) => {
+        const fallback = () => resolve({ meta: emptyMeta(origin) });
         const mod = pageUrl.startsWith('https') ? https : http;
-        const req = mod.get(pageUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (resp) => {
-            if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
-                const newOrigin = new URL(resp.headers.location).origin;
-                fetchPageMeta(resp.headers.location, newOrigin).then(resolve).catch(() => resolve({ icon: origin + '/favicon.ico', title: '', description: '' }));
-                return;
-            }
-            let html = '';
-            resp.on('data', chunk => {
-                html += chunk;
-                if (html.length > 50000) { resp.destroy(); resolve(parseMeta(html, origin)); }
+        let req;
+        try {
+            req = mod.get(pageUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (resp) => {
+                if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+                    resp.resume();
+                    let next;
+                    try { next = new URL(resp.headers.location, pageUrl).href; } catch { return fallback(); }
+                    return resolve({ redirect: next });
+                }
+                let html = '';
+                resp.on('data', chunk => {
+                    html += chunk;
+                    if (html.length > 50000) { resp.destroy(); resolve({ meta: parseMeta(html, origin) }); }
+                });
+                resp.on('end', () => resolve({ meta: parseMeta(html, origin) }));
+                resp.on('error', fallback);
             });
-            resp.on('end', () => resolve(parseMeta(html, origin)));
-            resp.on('error', () => resolve({ icon: origin + '/favicon.ico', title: '', description: '' }));
-        });
-        req.on('error', () => resolve({ icon: origin + '/favicon.ico', title: '', description: '' }));
-        req.on('timeout', () => { req.destroy(); resolve({ icon: origin + '/favicon.ico', title: '', description: '' }); });
+        } catch { return fallback(); }
+        req.on('error', fallback);
+        req.on('timeout', () => { req.destroy(); fallback(); });
     });
 }
 
@@ -1847,15 +1944,23 @@ const ICON_EXT_BY_MIME = {
     'image/jpeg': '.jpg',
     'image/gif': '.gif',
     'image/webp': '.webp',
-    'image/svg+xml': '.svg',
+    // SVG deliberately excluded: a hostile SVG can carry scripts and would be
+    // served same-origin from /uploads/icons (stored XSS).
     'image/x-icon': '.ico',
     'image/vnd.microsoft.icon': '.ico',
 };
 
 // Download a remote icon into uploads/icons, return local path (or null on failure)
-function downloadIcon(iconUrl, redirects = 0) {
+async function downloadIcon(iconUrl, redirects = 0) {
+    if (!String(iconUrl).startsWith('http') || redirects > 3) return null;
+    // SSRF guard: every hop (initial URL and each redirect target) must pass
+    // the DNS-level private-host check before any request is made.
+    try {
+        const parsed = new URL(iconUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        if (await isPrivateHost(parsed.hostname)) return null;
+    } catch { return null; }
     return new Promise((resolve) => {
-        if (!iconUrl.startsWith('http') || redirects > 3) return resolve(null);
         let referer;
         try { referer = new URL(iconUrl).origin + '/'; } catch { return resolve(null); }
         const mod = iconUrl.startsWith('https') ? https : http;
@@ -1872,7 +1977,7 @@ function downloadIcon(iconUrl, redirects = 0) {
             if (!ext) {
                 try {
                     const urlExt = path.extname(new URL(iconUrl).pathname).toLowerCase();
-                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico'].includes(urlExt)) ext = urlExt === '.jpeg' ? '.jpg' : urlExt;
+                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'].includes(urlExt)) ext = urlExt === '.jpeg' ? '.jpg' : urlExt;
                 } catch { /* keep ext undefined */ }
             }
             if (!ext) { resp.resume(); return resolve(null); }
@@ -1920,7 +2025,8 @@ app.post('/api/admin/localize-icons', requireAdmin, async (req, res) => {
         logAction(req.userId, 'localize_icons', `sites ${stats.sites.ok} ok/${stats.sites.fail} fail, links ${stats.links.ok} ok/${stats.links.fail} fail`);
         res.json({ message: 'Done', ...stats });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1937,7 +2043,8 @@ app.get('/api/users', requireAdmin, (req, res) => {
             return obj;
         }) : []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1951,7 +2058,8 @@ app.post('/api/users', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'User created' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -1979,7 +2087,8 @@ app.put('/api/users/:id', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'User updated' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -2001,7 +2110,8 @@ app.post('/api/users/:id/reset-password', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'Password reset' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -2019,7 +2129,8 @@ app.delete('/api/users/:id', requireAdmin, (req, res) => {
         saveDb();
         res.json({ message: 'User deleted' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -2153,7 +2264,8 @@ app.post('/api/health-check', requireAuth, async (req, res) => {
         saveDb();
         res.json({ results });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -2175,6 +2287,21 @@ app.get('/admin/stats', (req, res) => res.sendFile(path.join(ADMIN_DIR, 'stats.h
 app.get('/admin/logs', (req, res) => res.sendFile(path.join(ADMIN_DIR, 'logs.html')));
 app.get('/admin/users', (req, res) => res.sendFile(path.join(ADMIN_DIR, 'users.html')));
 app.get('/admin/backup', (req, res) => res.sendFile(path.join(ADMIN_DIR, 'backup.html')));
+
+// ═══════════════════════════════════════════
+// GLOBAL ERROR HANDLER (must be registered after all routes)
+// ═══════════════════════════════════════════
+
+// Body-parser failures (e.g. malformed JSON) answer 400 JSON instead of the
+// default HTML stack page; anything unexpected gets a generic 500.
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+    if (res.headersSent) return next(err);
+    if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
+        return res.status(err.status || 400).json({ error: err.type === 'entity.too.large' ? 'Payload too large' : 'Invalid request body' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+});
 
 // Start server
 async function start(port = PORT) {

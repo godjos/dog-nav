@@ -180,7 +180,11 @@ function buildCard(s) {
     const fav = document.createElement('div');
     fav.className = 'card-fav';
 
-    const iconUrl = typeof icon === 'string'
+    // 只有明确是 URL（http(s)://、站内绝对路径、data:image/）的图标才走 <img>；
+    // emoji、字母等文本图标直接按文本渲染——否则会被 sanitizeUrl 解析成同源
+    // 相对地址，每张卡片白走一次 404 再落回兜底
+    const isUrlIcon = typeof icon === 'string' && /^(https?:\/\/|\/|data:image\/)/i.test(icon);
+    const iconUrl = isUrlIcon
         ? (sanitizeUrl(icon) || (icon.startsWith('data:image/') ? icon : null))
         : null;
     if (iconUrl) {
@@ -192,7 +196,8 @@ function buildCard(s) {
         img.onerror = () => { img.onerror = null; img.src = iconFallbackUri(name); };
         fav.appendChild(img);
     } else {
-        fav.textContent = typeof icon === 'string' && !icon.startsWith('http') && !icon.startsWith('/') && !icon.startsWith('data:') ? icon : '🌐';
+        // 文本图标（emoji / 字母等），isUrlIcon 已排除 URL 形态
+        fav.textContent = icon || '🌐';
     }
 
     const nameEl = document.createElement('div');
@@ -679,7 +684,7 @@ function updateSearchPanel() {
 
 function externalSearch() {
     const q = searchInput.value.trim();
-    if (q) window.open(E[curE].u + encodeURIComponent(q), '_blank');
+    if (q) window.open(E[curE].u + encodeURIComponent(q), '_blank', 'noopener');
 }
 
 document.getElementById('searchBtn').addEventListener('click', () => {

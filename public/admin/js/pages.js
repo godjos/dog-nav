@@ -142,7 +142,8 @@
             document.getElementById('modalTitle').textContent = '编辑: ' + (page.title || page.id);
 
             if (page.content) {
-                quill.root.innerHTML = page.content;
+                // 注入前白名单清洗（/js/utils.js），防止库存储的恶意 HTML 在编辑时执行
+                quill.root.innerHTML = sanitizeHtml(page.content);
             } else {
                 quill.setText('');
             }

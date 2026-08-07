@@ -950,19 +950,73 @@ app.delete('/api/links/:id', requireAuth, async (c) => {
 // FETCH ICON API
 // ═══════════════════════════════════════════
 
-app.get('/api/fetch-icon', async (c) => {
+const FETCH_ICON_TIMEOUT_MS = 8000;
+const FETCH_ICON_MAX_REDIRECTS = 3;
+// Cap the downloaded HTML at 50KB, same as the Express backend (server.js).
+const FETCH_ICON_MAX_HTML_BYTES = 50000;
+
+// Read a response body up to maxBytes, then cancel the rest.
+async function readBodyCapped(resp, maxBytes) {
+    if (!resp.body) return '';
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (total < maxBytes) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        total += value.length;
+    }
+    try { await reader.cancel(); } catch { /* best effort */ }
+    const buf = new Uint8Array(Math.min(total, maxBytes));
+    let offset = 0;
+    for (const chunk of chunks) {
+        const slice = chunk.subarray(0, buf.length - offset);
+        buf.set(slice, offset);
+        offset += slice.length;
+    }
+    return new TextDecoder().decode(buf);
+}
+
+// Only the admin UI calls this endpoint (public/admin/js/*), so it requires
+// auth like the other admin routes. Follows redirects manually and re-runs
+// the SSRF check (http/https only, no private hosts) on every hop.
+app.get('/api/fetch-icon', requireAuth, async (c) => {
     const url = c.req.query('url');
     if (!url) return c.json({ error: 'Missing url parameter' }, 400);
 
     try {
-        const parsed = new URL(url);
+        let currentUrl = url;
+        let parsed = null;
+        let html = null;
+        for (let hop = 0; hop <= FETCH_ICON_MAX_REDIRECTS; hop++) {
+            try { parsed = new URL(currentUrl); } catch {
+                return c.json({ icon: '', title: '', description: '' });
+            }
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return c.json({ icon: '', title: '', description: '' });
+            }
+            if (isPrivateHostSync(parsed.hostname)) {
+                return c.json({ icon: '', title: '', description: '' });
+            }
+            const resp = await fetch(parsed.href, {
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(FETCH_ICON_TIMEOUT_MS),
+            });
+            const location = resp.headers.get('location');
+            if (resp.status >= 300 && resp.status < 400 && location && hop < FETCH_ICON_MAX_REDIRECTS) {
+                try { resp.body && resp.body.cancel(); } catch { /* best effort */ }
+                try { currentUrl = new URL(location, parsed.href).href; } catch {
+                    return c.json({ icon: '', title: '', description: '' });
+                }
+                continue;
+            }
+            html = await readBodyCapped(resp, FETCH_ICON_MAX_HTML_BYTES);
+            break;
+        }
+        if (html === null) return c.json({ icon: '', title: '', description: '' });
         const origin = parsed.origin;
-
-        const resp = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            redirect: 'follow',
-        });
-        const html = await resp.text();
 
         // Extract icon
         const iconPatterns = [
@@ -1002,10 +1056,12 @@ app.get('/api/fetch-icon', async (c) => {
             if (m && m[1]) { description = m[1].trim(); break; }
         }
 
-        // Localize the icon as a data URI so the frontend doesn't depend on third-party servers
+        // Localize the icon as a data URI so the frontend doesn't depend on third-party servers.
+        // If the remote icon can't be fetched (404, timeout, etc.), drop it —
+        // storing a dead URL would leave the frontend on its fallback forever.
         if (icon.startsWith('http')) {
             const dataUri = await fetchIconAsDataUri(icon);
-            if (dataUri) icon = dataUri;
+            icon = dataUri || '';
         }
 
         return c.json({ icon, title, description });
@@ -1350,16 +1406,8 @@ app.post('/api/import/bookmarks', requireAdmin, async (c) => {
         return c.json({ error: 'No bookmarks found' }, 400);
     }
 
-    // Fill missing icons with a favicon service
-    sites.forEach(site => {
-        if (!site.icon) {
-            try {
-                site.icon = `https://www.google.com/s2/favicons?domain=${new URL(site.url).hostname}&sz=64`;
-            } catch (e) {
-                site.icon = '';
-            }
-        }
-    });
+    // 缺失图标留空：前端会显示首字母占位，真实图标由下方后台任务抓取。
+    // 不填第三方 favicon 服务（如 google s2，国内不可达），避免引入外链依赖。
 
     // Avoid creating duplicates against existing sites
     const existingRows = await c.env.DB.prepare('SELECT url, category FROM sites').all();
@@ -1416,7 +1464,8 @@ app.post('/api/import/bookmarks', requireAdmin, async (c) => {
                 let icon = await fetchRealIcon(site.url);
                 if (icon.startsWith('http')) {
                     const dataUri = await fetchIconAsDataUri(icon);
-                    if (dataUri) icon = dataUri;
+                    // 抓取失败说明远程图标不可用，置空而不是留死链
+                    icon = dataUri || '';
                 }
                 if (icon) {
                     await c.env.DB.prepare('UPDATE sites SET icon=? WHERE url=? AND category=?').bind(icon, site.url, site.category).run();

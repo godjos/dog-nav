@@ -17,11 +17,11 @@
 | 安全响应头 | 每个响应（含静态资源）都带 `X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin`、`Content-Security-Policy`（`default-src 'self'; script-src 'self' https://cdn.quilljs.com; ...`） | E:75-81（中间件统一加） | W:118-128（中间件）+ W:132-137（`fetchAsset` 包装 ASSETS 响应，见 D21） |
 | 请求体 | JSON；Express 上限 50MB | E:46-47 | —（Worker 无显式上限） |
 | CORS | 默认同源（不发 CORS 头）；`CORS_ORIGIN` 环境变量（逗号分隔）显式放行 | E:44-45 | W:106-111 |
-| 通用错误格式 | `{"error": "<message>"}`；Express 未捕获异常统一 `500 {"error": err.message}`；Worker 仅个别路由 try/catch，其余异常由运行时兜底 | E 各路由 | W 各路由 |
+| 通用错误格式 | `{"error": "<message>"}`；Express 路由异常统一 `500 {"error":"Internal server error"}`（细节只进 `console.error`，multer 错误例外为 `400 {"error":<message>}`）；Worker 仅个别路由 try/catch，其余异常由运行时兜底（见 D20） | E 各路由 | W 各路由 |
 | 未匹配的 `/api/*` 路由 | Express：落到默认 404 HTML 页（`Cannot ...`）；Worker：`404 {"error":"Not found"}` | — | W:1038-1041 |
 | 日志 | 多数写操作向 `logs` 表写入 `logAction`（`user_id, action, detail, created_at`） | E:70-73 | W:150-153 |
 
-**限流总览**：全系统仅登录接口有限流（内存滑动窗口：每 IP 5 次失败锁定 15 分钟）。Worker 的限流是 per-isolate 内存状态，多实例下不共享，实际强度弱于 Express 单进程。其余接口（含公开的提交/举报/点击/抓取类接口）均无速率限制。
+**限流总览**：登录接口为内存滑动窗口限流（每 IP 5 次失败锁定 15 分钟）；投稿 IP 限流 5 次/小时、举报 10 次/小时（固定窗口，见 §7/§8）；Express 的点击统计另有限流 60 次/小时（Worker 端无，见 D22）。Worker 的限流是 per-isolate 内存状态，多实例下不共享，实际强度弱于 Express 单进程。`/api/fetch-icon` 已不再是公开接口（两端均 requireAuth，见 §17）。
 
 ---
 
@@ -100,13 +100,13 @@
 
 ### POST /api/sites — 新建站点
 
-`E:466-483` / `W:234-243`
+`E:559-580` / `W:306-315`
 
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAuth |
 | 请求体 | 必填：`name, url, category`；可选：`description, icon, screenshot, sort_order, is_featured, nofollow, seo_title, seo_description`；Worker 额外接受 `status`（Express 不写入该列，用表默认 `'active'`） |
-| 成功 | `200 {"id":<int>,"message":"Site added"}`（语义上应为 201，见差异清单 D1） |
+| 成功 | `200 {"id":<int>,"message":"Site added"}`（语义上应为 201，见差异清单 D1；**id 为真实自增 id**——Express 原「id 恒 0」quirk 已修复，`E:571-572` 在 `logAction()` 之前读取 `last_insert_rowid()`） |
 | 错误 | `400 {"error":"Missing required fields"}` |
 | 副作用 | 记日志 `create_site` |
 
@@ -145,12 +145,13 @@
 
 ### POST /api/sites/:id/click — 点击统计
 
-`E:538-551` / `W:282-290`
+`E:654-671` / `W:366-374`
 
 | 项 | 内容 |
 |---|---|
-| 鉴权 | 公开，无限流 |
+| 鉴权 | 公开；**Express 限流每 IP 60 次/小时**（固定窗口内存限流 `clickLimiter`，`E:653`），Worker 无限流（见 D22） |
 | 成功 | `200 {"success":true}`（id 不存在也 200） |
+| 错误 | Express 超限 → `429 {"error":"Too many requests"}` |
 | 副作用 | `click_count+1`；向 `stats` 表写入 `site_id, ip_address, user_agent, referrer`（Express 取 `req.ip`，Worker 取 `cf-connecting-ip`/`x-forwarded-for`） |
 
 ---
@@ -210,6 +211,26 @@
 - requireAuth；请求体 `name`（必填）、`color`（可选，默认 `#667eea`）
 - 成功 `200 {"message":"Tag created"}`；错误 `400 {"error":"Name required"}`；name 重复 → 500
 
+### PUT /api/tags/:id — 更新标签
+
+`E:779-802` / `W:434-448`
+
+| 项 | 内容 |
+|---|---|
+| 鉴权 | requireAuth |
+| 请求体 | `name`、`color`（均可选，未提供的字段沿用库存值） |
+| 成功 | `200 {"message":"Tag updated"}` |
+| 错误 | `404 {"error":"Tag not found"}`；改名后与**其他**标签重名 → `409 {"error":"Tag name exists"}` |
+| 副作用 | 记日志 `update_tag` |
+
+### DELETE /api/tags/:id — 删除标签
+
+`E:804-818` / `W:450-460`
+
+- requireAuth；先删除 `site_tags` 中该标签的全部关联，再删除标签本身
+- 成功 `200 {"message":"Tag deleted"}`；错误 `404 {"error":"Tag not found"}`
+- 副作用：记日志 `delete_tag`
+
 ### POST /api/sites/:id/tags — 重置站点标签
 
 `E:722-736` / `W:424-433`
@@ -225,7 +246,8 @@
 
 | 端点 | 鉴权 | 成功 | 错误 | Express | Worker |
 |---|---|---|---|---|---|
-| GET /api/pages | 公开 | `200 [<page>,...]` 按 id 排序 | — | E:1128-1139 | W:506-509 |
+| GET /api/pages | 公开 | `200 [<page>,...]` 按 id 排序，**仅 `status='published'`** | — | E:1128-1139 | W:506-509 |
+| GET /api/admin/pages | requireAuth | `200 [<page>,...]` 按 id 排序，**含草稿等全部状态**（管理后台用） | `401`/`403` | E:1669-1681 | W:871-874 |
 | GET /api/pages/:id | 公开 | `200 <page>` | `404 {"error":"Page not found"}` | E:1141-1153 | W:511-515 |
 | PUT /api/pages/:id | requireAuth | `200 {"message":"Page updated"}`（不存在也 200） | — | E:1155-1165 | W:517-523 |
 | POST /api/pages | requireAuth | `201 {"message":"Page created","id":"<id>"}` | `400 {"error":"Missing required fields (id, title)"}`；`400 {"error":"Invalid page ID (a-z, 0-9, hyphens only)"}`；`400 {"error":"Invalid status"}`；`409 {"error":"Page ID exists"}` | E:1654-1674 | W:893-907 |
@@ -346,6 +368,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | GET /api/users | requireAdmin | — | `200 [<user>,...]` 按 id | — | E:1407-1418 | W:713-716 |
 | POST /api/users | requireAdmin | 必填 `username,password`（≥8 位）；可选 `role`（默认 `'editor'`） | `200 {"message":"User created"}` | `400 {"error":"Missing required fields"}`；`400 {"error":"Password must be at least 8 characters"}`；用户名重复 → 500 | E:1420-1432 | W:718-726 |
 | PUT /api/users/:id | requireAdmin | `role, is_active` | `200 {"message":"User updated"}` | — | E:1434-1444 | W:728-734 |
+| POST /api/users/:id/reset-password | requireAdmin | 必填 `newPassword`（≥8 位） | `200 {"message":"Password reset"}`；重置后 `must_change_password=1`，并删除该用户**全部 session** | `400 {"error":"New password must be at least 8 characters"}`；`404 {"error":"User not found"}` | E:2100-2121 | W:1174-1188 |
 | DELETE /api/users/:id | requireAdmin | — | `200 {"message":"User deleted"}` | `403 {"error":"Cannot delete the last active admin"}` | E:1446-1462 | W:736-747 |
 
 ---
@@ -369,28 +392,30 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ### GET /api/export — 导出数据
 
-`E:734-768` / `W:814-826`
+`E:842-881` / `W:1207-1230`
 
 | 项 | 内容 |
 |---|---|
 | 鉴权 | **requireAdmin**（原 requireAuth，editor 已不可导出，S6 已修复） |
-| 成功 | `200 {"sites":[...],"categories":[...],"tags":[...],"links":[...],"settings":{...},"exportDate":"<ISO>"}`；**Worker 额外包含 `pages` 数组**（Express 不含） |
-| 备注 | `settings` 为全量键值，含敏感键（仅 admin 可见） |
+| 成功 | `200 {"schemaVersion":2,"exportDate":"<ISO>","sites":[...],"categories":[...],"tags":[...],"site_tags":[...],"links":[...],"pages":[...],"settings":{...},"clickStats":[...]}`（两端字段完全一致，原 D10 已消除） |
+| 备注 | 每个 site 追加 `tags` 字段（tag_id 数组，来自 `site_tags`）；`site_tags` 为 `{site_id,tag_id}` 全量关联；`clickStats` 为 `{site_id,clicks}` 聚合（`stats` 表按 site_id GROUP BY）；**`settings` 只导出 10 个公开白名单键**（`PUBLIC_SETTING_KEYS`，见 §11），绝不含 `weather_api_key` 等敏感键；`users`/`sessions`/`logs`/`stats` 明细（IP）一律不导出；记日志 `export` |
 
 ### POST /api/import — 导入数据
 
-`E:704-749` / `W:767-811`
+`E:917-994`（校验层 `validateBackup` `E:887-915`）/ `W:1266-1341`（校验层 `W:1236-1264`）
 
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAdmin |
-| 请求体 | `{sites?, categories?, tags?, links?, pages?, settings?}`；**Express 忽略 `pages`**，Worker 支持 |
-| 行为 | 每个出现的数组：先 `DELETE FROM <表>` 再逐条插入（sites 仅导入 `id,name,url,description,icon,category,sort_order,is_featured,click_count` 九列）；`settings` 逐键 upsert |
-| 成功 | `200 {"message":"Import successful"}`，记日志 `import` |
+| 请求体 | `{schemaVersion?, sites?, categories?, tags?, site_tags?, links?, pages?, settings?, clickStats?}`（两端一致，原 D11 已消除；`clickStats` 仅参与格式校验，导入时忽略、不回写） |
+| 校验层 | 任何写库**之前**先过 `validateBackup`，发现第一个问题即 `400 {"error":"Invalid backup: <原因>"}`：顶层必须是对象；`schemaVersion` 提供时必须为 `2`；各数组键必须是数组；`settings` 必须是对象；每个 site 须含 `name,url,category`；`site_tags` 的 `site_id`/`tag_id` 必须能在本次备份的 `sites`/`tags` 中找到；page `id` 须匹配 `/^[a-z0-9-]+$/` |
+| 行为 | 每个出现的数组：先 `DELETE FROM <表>` 再逐条插入（sites 导入 17 列含 `status/last_status/consecutive_failures` 等；pages 的 `status` 非 `'draft'/'published'` 时归一化为 `'published'`）；`settings` **只导入 10 个公开白名单键**，白名单外键被跳过并计入 `skippedSettings` |
+| 成功 | `200 {"message":"Import completed","counts":{"sites":<int>,"categories":<int>,"tags":<int>,"links":<int>,"pages":<int>},"skippedSettings":<int>}`，记日志 `import` |
+| 错误 | `400 {"error":"Invalid backup: <原因>"}`（校验层）；写库中途失败 → `500 {"error":"Import failed, rolled back"}`（Express 用 `BEGIN/COMMIT/ROLLBACK` 事务，Worker 用原子 `db.batch`，两端均整体回滚） |
 
 ### POST /api/import/bookmarks — 浏览器书签导入
 
-`E:751-877` / `W:813-960`
+`E:996-1127` / `W:1343-1494`
 
 | 项 | 内容 |
 |---|---|
@@ -424,15 +449,16 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ### GET /api/fetch-icon?url=... — 抓取页面元信息
 
-`E:1229-1245`（实现 `E:1247-1309`）/ `W:582-644`
+`E:1820-1836`（实现 `E:1838` 起）/ `W:984-1074`（常量 `W:953-956`）
 
 | 项 | 内容 |
 |---|---|
-| 鉴权 | **公开，无限流**（SSRF，见安全缺口 S2） |
+| 鉴权 | **requireAuth**（受 must_change_password 限制；原为公开无限流，S2 已修复，两端均已收紧） |
 | 查询参数 | `url`（必填） |
-| 成功 | `200 {"icon":"<url|data:|本地路径>","title":"<str>","description":"<str>"}`；任何异常 → `200 {"icon":"","title":"","description":""}` |
-| 错误 | `400 {"error":"Missing url parameter"}` |
-| 差异 | Express：HTML 限读 50KB、8s 超时、http/https 均可、跟随重定向，图标下载为本地文件 `/uploads/icons/<md5>.<ext>`（≤500KB）；Worker：整页读入内存、http/https 均可，图标转 data URI（≤32KB） |
+| 成功 | `200 {"icon":"<url|data:|本地路径>","title":"<str>","description":"<str>"}`；任何异常/被拦截 → 200 兜底空 meta（Worker 恒 `{"icon":"","title":"","description":""}`；Express 兜底 `icon` 为 `<origin>/favicon.ico`，见 D8） |
+| 错误 | `400 {"error":"Missing url parameter"}`；`401`/`403`（见通用约定） |
+| SSRF 防护（两端一致） | 仅允许 http/https；私网/保留地址拦截，**每个重定向跳重查**（Express 经 `isPrivateHost` 含 DNS 解析判断，Worker 经 `isPrivateHostSync` 仅主机名+IP 字面量）；手动跟随重定向 ≤3 跳；单请求 8s 超时；HTML 限读 50KB |
+| 差异 | 图标产物：Express 下载为本地文件 `/uploads/icons/<md5>.<ext>`（≤500KB，`downloadIcon` 同样逐跳做私网检查），Worker 转 data URI（≤32KB），见 D7 |
 
 ### POST /api/admin/localize-icons — 存量外链图标本地化
 
@@ -468,17 +494,17 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 | # | 位置 | Express 行为 | Worker 行为 | 建议统一方向 |
 |---|---|---|---|---|
-| D1 | POST /api/sites | 成功返回 `200 {"id","message"}`（E:534，**注意 Express 存在 id 恒为 0 的 quirk**，见 test/api.test.js 的 CONTRACT-PIN） | 同样 `200`（W:291） | 语义应为 `201 Created`，两端统一改 201（注意前端兼容） |
-| D2 | POST /api/sites 写入列 | 不写 `status` 列，依赖表默认 `'active'`（E:472-474） | 显式写入 `status`（缺省 `'active'`，W:238-240） | 统一为都接受 `status`（与 PUT 对齐） |
+| D1 | POST /api/sites | 成功返回 `200 {"id","message"}`，**id 恒为 0 的 quirk 已修复**：`E:571-572` 在 `logAction()`/`saveDb()` 之前读取 `last_insert_rowid()`，返回真实自增 id（注意：test/api.test.js 断言 `id===0` 的旧 CONTRACT-PIN 已过时，待测试同步更新） | 同样 `200`，返回 `last_row_id`（W:306-315） | 语义应为 `201 Created`，两端统一改 201（注意前端兼容） |
+| D2 | POST /api/sites 写入列 | 不写 `status` 列，依赖表默认 `'active'`（E:565-567） | 显式写入 `status`（缺省 `'active'`，W:310-312） | 统一为都接受 `status`（与 PUT 对齐） |
 | ~~D3~~ | ~~POST /api/pages~~ | **已消除**：Express 补上 `POST /api/pages`，与 Worker 语义一致（id 格式/`status` 枚举 400、重复 id `409 {"error":"Page ID exists"}`、成功 `201`，E:1654-1674） | 同左（W:893-907） | — |
 | D4 | DELETE /api/pages/:id | 不存在 | 存在，不存在时 `404`（W:538-544） | 同上，补到 Express |
 | D5 | PUT /api/pages/:id | id 不存在静默 200 | 同左 | 建议统一为不存在返回 404 |
 | D6 | POST /api/upload | 真实上传：multer 落盘，≤5MB，返回 `/uploads/...` URL（E:883-892） | **占位 stub**：恒返回空 url/filename 和提示文案（W:966-970） | Worker 接 R2 实现真实上传；在实现前契约测试需跳过或标记该端点 |
 | D7 | GET /api/fetch-icon 图标产物 | 下载为本地文件 `/uploads/icons/<md5>.<ext>`（≤500KB，E:1332-1375） | 转 data URI（≤32KB，W:661-684） | 统一返回形态；Worker 接 R2 后可与 Express 一致返回 URL |
-| D8 | GET /api/fetch-icon 抓取细节 | HTML 限 50KB、8s 超时（E:1250-1265） | 整页读入、无显式超时（W:590-594） | 统一限流/限量/超时参数；并加鉴权（见 S2） |
+| D8 | GET /api/fetch-icon 抓取细节 | **鉴权与限量参数已收敛（S2 已修复）**：两端均 requireAuth、http/https only、私网拦截逐跳重查、手动重定向 ≤3、8s 超时、HTML 限 50KB（E:1820-1836，实现 E:1838 起）。剩余差异：Express 做 DNS 解析判断（`isPrivateHost`）；被拦截/失败时 Express 兜底 `icon` 为 `<origin>/favicon.ico` | 无 DNS，仅 `isPrivateHostSync` 主机名+IP 字面量判断；被拦截/失败时返回全空 `{"icon":"","title":"","description":""}`（W:984-1074，常量 W:953-956） | 私网判定深度差异可保留（同 D16，Worker 平台限制）；兜底空 meta 形态建议统一 |
 | D9 | POST /api/import/bookmarks 图标回填 | 后台抓 favicon 存本地文件（E:849-869） | `waitUntil` 后台转 data URI（W:935-956） | 同 D7 |
-| D10 | GET /api/export 字段 | 含 `sites/categories/tags/links/settings/exportDate`，**不含 pages**（E:670-696） | 额外含 `pages`（W:764） | 统一含 pages；Express 同步补上 |
-| D11 | POST /api/import | 忽略 `pages`（E:704-749） | 支持 `pages` 导入（W:797-803） | 同 D10 |
+| ~~D10~~ | ~~GET /api/export 字段~~ | **已消除**：两端导出字段完全一致，均含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 均只导出公开白名单键（E:842-881） | 同左（W:1207-1230） | — |
+| ~~D11~~ | ~~POST /api/import~~ | **已消除**：两端均支持 `pages` 导入、均有 `validateBackup` 400 校验层、成功均返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 均只导入白名单键（E:917-994） | 同左（W:1266-1341） | — |
 | ~~D12~~ | ~~settings 默认播种~~ | **已消除**：两端播种完全一致的 11 键（10 个公开键 + `weather_api_key=''` 遗留空值），含 `weather_enabled='false'`，无 `auto_nofollow`（`E:318-330`） | 同左（`W:96-106`） | — |
 | D13 | pages 默认播种 | 3 页（about/contribute/links，E:337-348） | 4 页（多 `guide`），且文案不同（W:101-106） | 统一播种内容 |
 | ~~D14~~ | ~~天气 key 硬编码~~ | **已消除**：前端不再硬编码和风 key，两端 `weather_api_key` 均默认为 `''` | 同左 | — |
@@ -487,8 +513,9 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | ~~D17~~ | ~~POST /api/sites/batch update SQL 注入面~~ | **已消除（S4 修复）**：`data` 键名白名单校验，白名单外 `400 Invalid field`；仍为单条 `UPDATE ... WHERE id IN (...)`（E:581-591） | 同左（白名单一致），仍逐 id 循环 UPDATE（W:323-334） | 行为等价，实现差异可保留 |
 | ~~D18~~ | ~~POST /api/sites/batch 未知 action~~ | **已消除**：未知 action 返回 `400 {"error":"Invalid action"}`（E:593-595） | 同左（W:336-338） | — |
 | D19 | /admin/:page | 13 条显式路由（E:1531-1543） | 通配 `:page` 经字符过滤（W:1017-1021），另多 `GET /p/:slug` 重定向（W:1027-1032） | 可保留实现差异；`/p/:slug` 如需公开短链则在 Express 补同名路由 |
-| D20 | 500 错误一致性 | 每个路由 try/catch 返回 `500 {"error": err.message}`，会把内部错误细节（含 SQL）外泄 | 多数路由无 try/catch，异常由 Workers 运行时兜底（非 JSON） | 统一为 `500 {"error":"Internal server error"}`，细节只进日志 |
+| D20 | 500 错误一致性 | **Express 侧已修复**：所有路由 try/catch 统一 `500 {"error":"Internal server error"}`，细节只进 `console.error`，不再外泄 `err.message`（含 SQL） | 多数路由无 try/catch，异常由 Workers 运行时兜底（非 JSON） | Worker 侧统一为 `500 {"error":"Internal server error"}` JSON |
 | D21 | 静态资源的安全响应头 | 由全局中间件统一加（`E:75-81`），`express.static` 与 API 响应一视同仁 | `wrangler.toml` 配置 `[assets] binding="ASSETS"` + `run_worker_first=true`（`cloudflare/wrangler.toml:5-11`），所有请求先过 Worker；静态响应经 `fetchAsset`（`W:132-137`）重新包装后补上安全头 | 行为已一致（静态响应两端均带 4 个安全头），实现路径不同，可保留 |
+| D22 | POST /api/sites/:id/click 限流 | 公开 + IP 限流 60 次/小时（固定窗口内存限流，超限 `429 {"error":"Too many requests"}`，`E:653-659`） | 公开、**无限流**（W:366-374） | Worker 补同参数限流（per-isolate 注意，见 S9） |
 
 ---
 
@@ -497,13 +524,13 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | # | 缺口 | 位置 | 说明 |
 |---|---|---|---|
 | S1 | 静态根目录暴露 | `E:48` | **已修复**：历史上 `express.static(__dirname)` 暴露项目根（含 `server.js`、`dognav.db`），现仅服务 `public/`；保持回归测试覆盖 |
-| S2 | fetch-icon 未鉴权 SSRF | `E:1229` / `W:582` | 公开接口，后端对任意 URL 发起请求（含内网地址），无鉴权、无限流、无协议/地址段过滤；且 Express 会把响应内容写盘 |
+| S2 | ~~fetch-icon 未鉴权 SSRF~~ | `E:1820` / `W:984` | **已修复**：两端均收紧为 requireAuth；仅允许 http/https；私网/保留地址拦截且每个重定向跳重查（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量）；手动重定向 ≤3、8s 超时、HTML 限读 50KB；剩余私网判定深度差异见 D8/D16 |
 | S3 | ~~health-check 任意 URL 探测~~ | `E:1892` / `W:1372` | **已修复（阶段 4）**：改为按 `siteIds` 检测库内站点（≤50），不再接受任意 URL；私网/保留地址拦截（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量，见 D16）；并发 5、8s 超时、重定向 ≤3 且逐跳重查 |
 | S4 | ~~batch update SQL 注入~~ | `E:583-586` / `W:324-327` | **已修复**：`data` 键名白名单（12 个可更新列），白名单外返回 `400 Invalid field`，契约测试已覆盖 |
 | S5 | ~~PUT /api/settings 无白名单~~ | `E:1159-1164` / `W:547-552` | **已修复**：两个 settings PUT 均要求 requireAdmin 且强制可写键白名单（10 键，不含 `weather_api_key`），白名单外键 `400 Invalid setting key`；布尔键归一化为 `'true'/'false'`；旧 `PUT /api/settings` 仅作废弃别名保留（带 `Deprecation`/`Sunset` 头），契约测试已覆盖 |
 | S6 | ~~导出含敏感信息~~ | `E:734` / `W:814` | **已修复**：`/api/export`、`/api/admin/settings`、`/api/logs`、`PUT /api/settings` 均收紧为 requireAdmin |
 | S7 | ~~密钥硬编码入库~~ | `E:321` / `W:98` | **已修复**：两端 `weather_api_key` 默认均为 `''`，前端 `public/js/app.js` 已无硬编码 key |
-| S8 | 公开写接口无防护 | `E:1054/1168/538` 等 | **部分修复（阶段 4）**：投稿加蜜罐 `website` + IP 限流 5/h + 字段/分类/URL 校验 + `normalized_url` 去重（409）；举报加 reason 枚举 + IP 限流 10/h + 同站同 IP 24h 去重；点击统计 `POST /api/sites/:id/click` 仍为公开无限流 |
+| S8 | 公开写接口无防护 | `E:1210/1328/654` 等 | **部分修复（阶段 4 起）**：投稿加蜜罐 `website` + IP 限流 5/h + 字段/分类/URL 校验 + `normalized_url` 去重（409）；举报加 reason 枚举 + IP 限流 10/h + 同站同 IP 24h 去重；点击统计 `POST /api/sites/:id/click` Express 已加 IP 限流 60/h，**Worker 端仍无限流**（见 D22） |
 | S9 | 登录限流粒度 | `W:159` | Worker 限流为 per-isolate 内存状态，多实例下不共享，限制效果不可靠 |
 
 ---
@@ -525,8 +552,8 @@ CONTRACT_TARGET=worker npm run test:contract     # 仅 Worker
 CONTRACT_TARGET=both npm run test:contract       # 两端各跑一遍同一用例表
 ```
 
-已知双端差异通过用例表中的 `expectStatusByRuntime` 分别断言，并在用例名/注释中标注 D 编号（当前用例表已无需分端断言的用例——pages POST 的 D3 已消除，该机制保留以备后续差异；D1、D2、D10、D16 等仅以注释标注）；其余用例两端断言完全一致。注意 D15（未匹配 /api/* 的 404 形态）仍是开放差异，但 D3 消除后不再有用例触达它。修改任一端 API 行为时，同步更新本文档、另一端实现与用例表。
+已知双端差异通过用例表中的 `expectStatusByRuntime` 分别断言，并在用例名/注释中标注 D 编号（当前用例表已无需分端断言的用例——pages POST 的 D3 已消除，该机制保留以备后续差异；D1、D2、D16 等仅以注释标注）；其余用例两端断言完全一致。注意 D15（未匹配 /api/* 的 404 形态）仍是开放差异，但 D3 消除后不再有用例触达它。另注意：`POST /api/sites` 返回真实 id 后，test/api.test.js 中断言 `id===0` 的旧 CONTRACT-PIN 与 test/contract.test.js 中「Express responds {"id":0}」的注释均已过时，需随测试同步更新。修改任一端 API 行为时，同步更新本文档、另一端实现与用例表。
 
 ---
 
-> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-07-26 阶段 4 后的代码版本（`server.js` 1989 行、`cloudflare/src/index.js` 1459 行）。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。本次已校正 §7/§8/§9/§16 的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。
+> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。

@@ -138,15 +138,15 @@ test('sites: create / update / delete with auth', async () => {
         body: { name: 'Test Site', url: 'https://test-site.example', category: 'tools', description: 'crud' },
     });
     assert.equal(created.status, 200);
-    // CONTRACT-PIN: 现状行为，后续阶段可能调整 — the endpoint responds with
-    // {"id": 0} because last_insert_rowid() is read after the log insert /
-    // db export, not after the site insert. The real id is only observable
-    // through GET /api/sites.
-    assert.equal(created.body.id, 0);
+    // POST /api/sites returns the real last_insert_rowid (read right after the
+    // insert, before the log/export statements); it must match the public list.
+    assert.ok(Number.isInteger(created.body.id) && created.body.id > 0,
+        `real id returned, got ${created.body.id}`);
     const listAfterCreate = await api(ctx.baseUrl, 'GET', '/api/sites');
     const createdSite = listAfterCreate.body.find((s) => s.url === 'https://test-site.example');
     assert.ok(createdSite, 'created site visible in public list');
     const id = createdSite.id;
+    assert.equal(created.body.id, id, 'response id matches the public list id');
 
     const updated = await api(ctx.baseUrl, 'PUT', `/api/sites/${id}`, {
         token: adminToken,
@@ -172,12 +172,15 @@ test('sites: GET appends tags — {id,name,color} sorted by name, untagged site 
         body: { name: 'Tagged Site', url: 'https://tagged.example', category: 'tools' },
     });
     assert.equal(created.status, 200);
-    // CONTRACT-PIN: POST /api/sites responds {"id":0} (see the CRUD test above);
-    // resolve the real id through the public list.
+    // POST /api/sites returns the real id — the tag assignment below targets it
+    // directly (previously the response id was always 0 and the real id had to
+    // be resolved through the public list).
+    const id = created.body.id;
+    assert.ok(Number.isInteger(id) && id > 0, `real id returned, got ${id}`);
     let list = await api(ctx.baseUrl, 'GET', '/api/sites');
-    const site = list.body.find((s) => s.url === 'https://tagged.example');
+    const site = list.body.find((s) => s.id === id);
     assert.ok(site, 'created site visible in public list');
-    const id = site.id;
+    assert.equal(site.url, 'https://tagged.example');
     assert.deepEqual(site.tags, [], 'new site has no tags');
 
     // Two tags in reverse name order, so the name sort is observable.
@@ -231,6 +234,49 @@ test('batch: unknown action returns 400', async () => {
     });
     assert.equal(res.status, 400);
     assert.equal(res.body.error, 'Invalid action');
+});
+
+test('batch: update with empty fields returns 400 (no "SET  WHERE" crash)', async () => {
+    for (const data of [{}, null, undefined]) {
+        const res = await api(ctx.baseUrl, 'POST', '/api/sites/batch', {
+            token: adminToken,
+            body: { ids: [1], action: 'update', data },
+        });
+        assert.equal(res.status, 400, `data=${JSON.stringify(data)}`);
+        assert.equal(res.body.error, 'No fields to update');
+    }
+});
+
+// ── Fetch icon (auth + SSRF guard) ───────────────────────────────────────
+
+test('fetch-icon: without auth returns 401', async () => {
+    const res = await api(ctx.baseUrl, 'GET', '/api/fetch-icon?url=https://example.com');
+    assert.equal(res.status, 401);
+});
+
+test('fetch-icon: private/loopback targets are blocked (SSRF guard)', async () => {
+    for (const target of ['http://127.0.0.1:1/', 'http://localhost/', 'http://169.254.169.254/latest/meta-data']) {
+        const res = await api(ctx.baseUrl, 'GET', `/api/fetch-icon?url=${encodeURIComponent(target)}`, {
+            token: adminToken,
+        });
+        assert.equal(res.status, 200, `url=${target}`);
+        assert.equal(res.body.title, '', `no page data for ${target}`);
+        assert.equal(res.body.description, '');
+        assert.ok(!String(res.body.icon).startsWith('/uploads/'), 'nothing localized from a private host');
+    }
+});
+
+// ── Global error handler ─────────────────────────────────────────────────
+
+test('malformed JSON body returns 400 JSON (not the default HTML stack page)', async () => {
+    const res = await fetch(ctx.baseUrl + '/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{not json',
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(body.error, 'Invalid request body');
 });
 
 // ── Upload ───────────────────────────────────────────────────────────────

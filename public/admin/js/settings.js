@@ -100,8 +100,8 @@
                 showToast('两次密码不一致', 'error');
                 return;
             }
-            if (newPwd.length < 6) {
-                showToast('密码至少6位', 'error');
+            if (newPwd.length < 8) {
+                showToast('密码至少8位', 'error');
                 return;
             }
 

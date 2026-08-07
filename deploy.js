@@ -126,7 +126,9 @@ async function main() {
 
     // 方式 1: wrangler CLI
     const dbList = run('npx wrangler d1 list');
-    const dbMatch = dbList.match(new RegExp(`${DB_NAME}.*?([a-f0-9-]{36})`, 'i'));
+    // wrangler d1 list 的表格输出中 uuid 列在 name 之前，取包含数据库名的那一行里的 uuid
+    const dbLine = dbList.split('\n').find(line => line.includes(DB_NAME));
+    const dbMatch = dbLine && dbLine.match(/([a-f0-9-]{36})/i);
 
     if (dbMatch) {
         dbId = dbMatch[1];
@@ -182,7 +184,8 @@ async function main() {
     console.log('═'.repeat(50));
     console.log(`\n  🌐 网站地址: https://${DB_NAME}.<你的子域名>.workers.dev`);
     console.log(`  🔧 后台管理: https://${DB_NAME}.<你的子域名>.workers.dev/admin`);
-    console.log(`  👤 默认账号: admin / admin123`);
+    console.log(`  👤 管理员账号: 仅在部署时设置了 INITIAL_ADMIN_PASSWORD 环境变量才会创建 admin 账号`);
+    console.log(`     未设置则首次部署后没有任何管理员，请设置该变量后重新部署。`);
     console.log(`\n  首次访问网站时 Worker 会自动创建数据库表和默认数据。`);
     console.log(`  如需导入完整 150+ 站点数据，运行: npm run db:seed\n`);
 }

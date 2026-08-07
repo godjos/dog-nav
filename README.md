@@ -13,7 +13,7 @@
 [![版本](https://img.shields.io/badge/版本-3.0-4ECDC4?style=flat-square)]()
 [![收录站点](https://img.shields.io/badge/收录站点-150+-45B7D1?style=flat-square)]()
 [![分类](https://img.shields.io/badge/分类-10-96CEB4?style=flat-square)]()
-[![开源协议](https://img.shields.io/badge/开源协议-MIT-FFEAA7?style=flat-square)]()
+[![开源协议](https://img.shields.io/badge/开源协议-未指定-FFEAA7?style=flat-square)]()
 
 <br>
 
@@ -74,7 +74,7 @@ dog-nav/
 
 ## 📖 简介
 
-DogNav 是一个精心策划的网址导航站，帮助你发现互联网上最优质的网站。采用**玻璃拟态 UI** 设计，支持深色/浅色主题切换，收录了 **150+ 精选站点**，涵盖 10 个分类，并配备**完整的 CMS 后台**，方便管理内容。
+DogNav 是一个精心策划的网址导航站，帮助你发现互联网上最优质的网站。采用**扁平化现代 UI** 设计（紧凑瓷贴卡片、吸顶分类栏），支持深色/浅色主题切换，收录了 **150+ 精选站点**，涵盖 10 个分类，并配备**完整的 CMS 后台**，方便管理内容。
 
 最初作为纯静态前端构建，DogNav 已发展为一个全栈应用，提供两种部署方式：本地 Node.js CMS 和无服务器 Cloudflare Workers 版本。
 
@@ -84,7 +84,7 @@ DogNav 是一个精心策划的网址导航站，帮助你发现互联网上最�
 
 | 功能 | 说明 |
 |:-----|:-----|
-| 🎨 **玻璃拟态 UI** | 现代毛玻璃设计，流畅动画与鼠标光晕特效 |
+| 🎨 **扁平化现代 UI** | 简洁扁平设计，紧凑瓷贴卡片与流畅动画 |
 | 🌓 **深色 / 浅色模式** | 一键切换主题，自动记住用户偏好 |
 | 🔍 **多引擎搜索** | 谷歌、必应、百度、DuckDuckGo — 导航栏内直接搜索 |
 | 📂 **10 大分类** | 推荐、视频、动漫、软件、工具、资讯、社区、AI、开发、设计 |
@@ -156,7 +156,7 @@ npm start
 # → http://localhost:3000
 ```
 
-**默认管理员：** 用户名 `admin`，首次启动时会生成随机初始密码并打印在服务日志中（仅显示一次），首次登录后必须修改。也可用环境变量 `INITIAL_ADMIN_PASSWORD` 指定初始密码。
+**管理员账号：** 用户名 `admin`。**仅当设置了环境变量 `INITIAL_ADMIN_PASSWORD` 时**，首次启动才会创建初始管理员（以该变量值为初始密码，首次登录后必须修改）。未设置时不会创建任何管理员，日志会打印提示，设置该变量后重启即可创建。
 
 ### Cloudflare 自动部署（推荐）
 
@@ -259,7 +259,7 @@ dog-nav/
 │   ├── links.html          # 友链页面（CMS 驱动）
 │   ├── contribute.html     # 投稿页面（CMS 驱动）
 │   ├── page.html           # 自定义页面模板（CMS 驱动）
-│   ├── css/                # style.css（玻璃拟态、主题）· font-awesome.css
+│   ├── css/                # style.css（扁平化主题）· font-awesome.css
 │   ├── js/                 # app.js 等前端逻辑（渲染、搜索、主题）
 │   ├── ico/                # 站点图标
 │   ├── admin/              # 后台管理（13 个页面）
@@ -277,7 +277,7 @@ dog-nav/
 ├── lib/                    # Express 端共享模块（auth.js · netutils.js）
 ├── seed.js                 # 业务数据播种脚本
 ├── deploy.js               # Cloudflare 一键部署脚本
-├── package.json            # Node.js 依赖（含 hono 供 CF 部署）
+├── package.json            # Node.js 依赖（CF 端依赖见 cloudflare/package.json）
 ├── wrangler.toml           # Cloudflare Workers 配置（一键部署用）
 ├── uploads/icons/          # 上传/抓取的图标（不入库）
 │
@@ -352,7 +352,7 @@ dog-nav/
 
 ## 📄 开源协议
 
-本项目基于 [MIT License](LICENSE) 开源。
+仓库暂未提供 LICENSE 文件（许可证未指定）；在补充许可证文件之前，默认保留所有权利。
 
 ---
 

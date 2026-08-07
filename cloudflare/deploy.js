@@ -63,7 +63,9 @@ async function main() {
 
     // Check if database already exists
     const dbList = run(`${WRANGLER} d1 list`);
-    const dbMatch = dbList.match(new RegExp(`${DB_NAME}\\s+\\|\\s+([a-f0-9-]{36})`));
+    // wrangler d1 list 的表格输出中 uuid 列在 name 之前，取包含数据库名的那一行里的 uuid
+    const dbLine = dbList.split('\n').find(line => line.includes(DB_NAME));
+    const dbMatch = dbLine && dbLine.match(/([a-f0-9-]{36})/i);
     
     if (dbMatch) {
         dbId = dbMatch[1];
@@ -130,8 +132,8 @@ async function main() {
     console.log('═'.repeat(50));
     console.log(`\n  🌐 网站地址: https://${DB_NAME}.workers.dev`);
     console.log(`  🔧 后台管理: https://${DB_NAME}.workers.dev/admin`);
-    console.log(`  👤 默认账号: admin / admin123`);
-    console.log(`\n  提示: 建议登录后立即修改默认密码!\n`);
+    console.log(`  👤 管理员账号: 仅在部署时设置了 INITIAL_ADMIN_PASSWORD 环境变量才会创建 admin 账号`);
+    console.log(`     未设置则首次部署后没有任何管理员，请设置该变量后重新部署。\n`);
 }
 
 main().catch(err => {

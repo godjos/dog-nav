@@ -61,9 +61,9 @@ document.querySelectorAll('.rv').forEach(el => { setTimeout(() => { const r = el
             }
         }
     } catch (err) {
-        console.log('CMS not available, using static content');
-        document.getElementById('statSites').textContent = '146+';
-        document.getElementById('statCats').textContent = '10';
-        document.getElementById('statClicks').textContent = '0';
+        console.log('CMS not available, stats unavailable');
+        document.getElementById('statSites').textContent = '—';
+        document.getElementById('statCats').textContent = '—';
+        document.getElementById('statClicks').textContent = '—';
     }
 })();

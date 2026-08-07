@@ -36,11 +36,33 @@ test('verifyPassword supports legacy plaintext values (lazy migration path)', ()
     assert.equal(verifyPassword('admin124', 'admin123'), false);
 });
 
-test('isHashed recognises the scrypt: prefix only', () => {
+test('isHashed recognises the scrypt:/pbkdf2: prefixes', () => {
     assert.equal(isHashed(hashPassword('x')), true);
+    assert.equal(isHashed('pbkdf2:100000:aabbcc:ddeeff'), true);
     assert.equal(isHashed('admin123'), false);
     assert.equal(isHashed(''), false);
     assert.equal(isHashed(undefined), false);
+});
+
+// PBKDF2 hashes in the Cloudflare Worker format ("pbkdf2:iterations:salt:hash",
+// SHA-256, 32-byte key, hex encoded — see cloudflare/src/auth.mjs) must verify
+// on the Node side, so a Worker-seeded admin password works after migration.
+test('verifyPassword accepts Worker-format pbkdf2: hashes', () => {
+    const crypto = require('crypto');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync('WorkerPass123!', Buffer.from(salt, 'hex'), 100000, 32, 'sha256').toString('hex');
+    const stored = `pbkdf2:100000:${salt}:${hash}`;
+    assert.ok(isHashed(stored));
+    assert.equal(verifyPassword('WorkerPass123!', stored), true);
+    assert.equal(verifyPassword('wrong-pass', stored), false);
+});
+
+test('verifyPassword rejects malformed pbkdf2: values', () => {
+    assert.equal(verifyPassword('x', 'pbkdf2:bad:format'), false);
+    assert.equal(verifyPassword('x', 'pbkdf2:100000:zz:zz'), false);
+    // hash length mismatch must fail, not throw
+    const salt = 'aabbccddeeff0011aabbccddeeff0011';
+    assert.equal(verifyPassword('x', `pbkdf2:100000:${salt}:abcd`), false);
 });
 
 test('generateToken returns unique base64url tokens', () => {

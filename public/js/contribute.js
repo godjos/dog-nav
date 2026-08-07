@@ -67,7 +67,7 @@ document.getElementById('submitForm').addEventListener('submit', async function(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name, url,
-                description: reason || desc,
+                description: desc || reason,
                 category: cat,
                 submitter_email: contact,
                 website: honeypot // 蜜罐字段：真人留空，机器人填了会被服务端静默丢弃

@@ -132,7 +132,8 @@
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
             z-index: 1001;
         }
-        .nav-dropdown:hover .nav-dropdown-menu { display: block; }
+        .nav-dropdown:hover .nav-dropdown-menu,
+        .nav-dropdown:focus-within .nav-dropdown-menu { display: block; }
         .nav-dropdown-menu a {
             display: block; padding: 8px 14px; border-radius: var(--r-sm);
             color: var(--text-2); text-decoration: none; font-size: var(--text-sm);

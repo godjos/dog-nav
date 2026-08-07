@@ -17,26 +17,6 @@ const obs = new IntersectionObserver(entries => {
 function revealEls(els) { setTimeout(() => { els.forEach(el => { const r = el.getBoundingClientRect(); if (r.top < window.innerHeight && r.bottom > 0) { el.classList.add('vis'); } else { obs.observe(el); } }); }, 50); }
 revealEls(document.querySelectorAll('.rv'));
 
-// Fallback friend links (used when CMS is unavailable)
-const fallbackFriends = [
-    { name: '阮一峰的网络日志', url: 'https://www.ruanyifeng.com', description: '技术周刊与博客', icon: '📝' },
-    { name: '酷壳', url: 'https://coolshell.cn', description: '陈皓的技术博客', icon: '🐚' },
-    { name: 'V2EX', url: 'https://v2ex.com', description: '创意工作者社区', icon: '💬' },
-    { name: '掘金', url: 'https://juejin.cn', description: '开发者技术社区', icon: '💎' },
-    { name: '博客园', url: 'https://www.cnblogs.com', description: '开发者的网上家园', icon: '🏡' },
-    { name: '少数派', url: 'https://sspai.com', description: '数字生活指南', icon: '📲' },
-    { name: 'Dribbble', url: 'https://dribbble.com', description: '设计师作品展示', icon: '🏀' },
-    { name: 'Behance', url: 'https://www.behance.net', description: 'Adobe 创意平台', icon: '🎭' },
-    { name: '站酷', url: 'https://www.zcool.com.cn', description: '设计师社区', icon: '🎯' },
-    { name: '优设', url: 'https://www.uisdc.com', description: '设计师学习平台', icon: '📐' },
-    { name: '花瓣网', url: 'https://huaban.com', description: '中文灵感收集', icon: '🌺' },
-    { name: 'GitHub', url: 'https://github.com', description: '全球代码托管平台', icon: '🐙' },
-    { name: 'Notion', url: 'https://notion.so', description: '一体化工作空间', icon: '📋' },
-    { name: 'Figma', url: 'https://figma.com', description: '协作设计工具', icon: '🖌️' },
-    { name: '草料二维码', url: 'https://cli.im', description: '在线二维码生成', icon: '📱' },
-    { name: 'iLovePDF', url: 'https://www.ilovepdf.com/zh-cn', description: 'PDF 在线处理', icon: '📄' },
-];
-
 function iconFallbackUri(name) {
     const letter = encodeURIComponent([...(name || '网')][0]);
     return `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 36 36%22><rect fill=%22%237f5af0%22 width=%2236%22 height=%2236%22 rx=%2218%22/><text x=%2218%22 y=%2224%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>${letter}</text></svg>`;
@@ -53,11 +33,11 @@ function renderFriendLinks(links) {
         return;
     }
     links.forEach(f => {
-        const name = f.name || f.n || '';
-        const url = sanitizeUrl(f.url || f.u);
+        const name = f.name || '';
+        const url = sanitizeUrl(f.url);
         if (!url) return; // 非法 URL 不渲染
-        const desc = f.description || f.d || '';
-        const rawIcon = f.icon || f.i || '🔗';
+        const desc = f.description || '';
+        const rawIcon = f.icon || '🔗';
 
         const a = document.createElement('a');
         a.href = url;
@@ -67,7 +47,10 @@ function renderFriendLinks(links) {
 
         const avatar = document.createElement('div');
         avatar.className = 'link-avatar';
-        const iconUrl = typeof rawIcon === 'string'
+        // 与 app.js 一致：只有明确的 URL 图标才走 <img>，文本图标直接渲染，
+        // 避免 emoji 被 sanitizeUrl 解析成同源相对地址白走一次 404
+        const isUrlIcon = typeof rawIcon === 'string' && /^(https?:\/\/|\/|data:image\/)/i.test(rawIcon);
+        const iconUrl = isUrlIcon
             ? (sanitizeUrl(rawIcon) || (rawIcon.startsWith('data:image/') ? rawIcon : null))
             : null;
         if (iconUrl) {
@@ -106,16 +89,12 @@ function renderFriendLinks(links) {
             fetch('/api/pages/links').catch(() => null)
         ]);
 
-        // Load friend links from CMS
+        // Load friend links from CMS（失败或为空时展示「暂无友情链接」占位）
         if (linksRes && linksRes.ok) {
             const links = await linksRes.json();
-            if (links && links.length > 0) {
-                renderFriendLinks(links);
-            } else {
-                renderFriendLinks(fallbackFriends);
-            }
+            renderFriendLinks(links);
         } else {
-            renderFriendLinks(fallbackFriends);
+            renderFriendLinks([]);
         }
 
         // Load page content from CMS
@@ -137,7 +116,7 @@ function renderFriendLinks(links) {
             }
         }
     } catch (err) {
-        console.log('CMS not available, using fallback');
-        renderFriendLinks(fallbackFriends);
+        console.log('CMS not available');
+        renderFriendLinks([]);
     }
 })();
