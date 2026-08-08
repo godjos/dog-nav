@@ -111,6 +111,12 @@ body {
     color: #ff6b6b;
 }
 
+.sidebar-version {
+    margin-top: 8px;
+    color: rgba(255,255,255,0.25);
+    font-size: 11px;
+}
+
 .main {
     margin-left: 240px;
     flex: 1;

@@ -1627,7 +1627,11 @@ app.get('/admin', async (c) => {
 });
 
 app.get('/admin/:page', async (c) => {
-    const page = c.req.param('page').replace(/[^a-z0-9-]/gi, '');
+    const raw = c.req.param('page');
+    // Static files under /admin/ (admin.css, favicon, ...) contain a dot;
+    // forward those to the asset binding instead of treating them as page names.
+    if (raw.includes('.')) return fetchAsset(c, c.req.raw);
+    const page = raw.replace(/[^a-z0-9-]/gi, '');
     if (!page) return c.notFound();
     return fetchAsset(c, new URL(`/admin/${page}.html`, c.req.url));
 });
