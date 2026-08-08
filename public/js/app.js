@@ -241,6 +241,7 @@ function buildCard(s) {
             star.setAttribute('aria-pressed', on ? 'true' : 'false');
             star.setAttribute('aria-label', star.title);
             if (curView === 'fav' && !on) render();
+            renderHomeFav(); // 首页收藏区同步增删
         });
         a.appendChild(star);
 
@@ -440,6 +441,12 @@ function render() {
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
+    // 首页附加区（热榜四源 + 我的收藏）只在默认「全部」视图展示
+    renderHomeExtras(curView === 'all');
+
+    // 热榜视图与站点数据无关，走独立渲染分支
+    if (curView === 'trending') { renderTrending(a); return; }
+
     if (S.length === 0) {
         a.appendChild(buildNote('暂无站点，欢迎投稿。', '去投稿 →', 'contribute.html'));
         return;
@@ -514,6 +521,245 @@ function clearFilters() {
     document.querySelectorAll('.view-pill').forEach(x => x.classList.toggle('on', x.dataset.view === 'all'));
     updateTagChip();
     render();
+}
+
+// ═══════════════════════════════════════════
+// HOT LIST — 热榜视图（服务端聚合代理 /api/hot/:source）
+// ═══════════════════════════════════════════
+const HOT_SOURCES_UI = [
+    { id: 'zhihu', label: '知乎热榜' },
+    { id: 'weibo', label: '微博热搜' },
+    { id: 'bilibili', label: 'B站热榜' },
+    { id: 'ithome', label: 'IT之家' },
+    { id: '36kr', label: '36氪' },
+    { id: 'sspai', label: '少数派' },
+];
+const hotDataCache = new Map(); // source -> { data, expires }（5 分钟；服务端另有 10 分钟缓存）
+const HOT_CLIENT_TTL_MS = 5 * 60 * 1000;
+const hotFailed = new Set();    // 抓取失败的源：本次会话内隐藏并自动切换
+let curHotSource = localStorage.getItem('dognav-hot-source') || 'zhihu';
+
+async function loadHot(source) {
+    const hit = hotDataCache.get(source);
+    if (hit && hit.expires > Date.now()) return hit.data;
+    const data = await fetchJSON('/api/hot/' + encodeURIComponent(source));
+    hotDataCache.set(source, { data, expires: Date.now() + HOT_CLIENT_TTL_MS });
+    return data;
+}
+
+// 热度值：知乎已是文案（如 "1234 万热度"）原样透传；数字做万位缩写
+function formatHotVal(v) {
+    if (typeof v === 'string') return v;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n >= 10000 ? `${(n / 10000).toFixed(1).replace(/\.0$/, '')} 万` : String(n);
+}
+
+function renderTrending(a) {
+    a.appendChild(buildSecHead('📈', '热榜'));
+
+    const available = HOT_SOURCES_UI.filter(s => !hotFailed.has(s.id));
+    if (!available.some(s => s.id === curHotSource)) curHotSource = available.length ? available[0].id : null;
+
+    if (!curHotSource) {
+        a.appendChild(buildNote('热榜暂时不可用，请稍后再试。', null, null, '重试', () => {
+            hotFailed.clear();
+            hotDataCache.clear();
+            render();
+        }));
+        return;
+    }
+
+    // 源切换 pill：复用 cat-pill 样式，不用 cat-bar 的吸顶容器
+    const bar = document.createElement('div');
+    bar.className = 'hot-src-bar rv vis';
+    available.forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = 'cat-pill' + (s.id === curHotSource ? ' on' : '');
+        btn.textContent = s.label;
+        btn.addEventListener('click', () => {
+            curHotSource = s.id;
+            localStorage.setItem('dognav-hot-source', s.id);
+            render();
+        });
+        bar.appendChild(btn);
+    });
+    a.appendChild(bar);
+
+    // 异步数据只写入 holder：render() 重渲染时旧 holder 已脱离文档，天然防竞态
+    const holder = document.createElement('div');
+    holder.className = 'hot-list';
+    const loading = document.createElement('div');
+    loading.className = 'area-note';
+    loading.textContent = '加载中…';
+    holder.appendChild(loading);
+    a.appendChild(holder);
+
+    loadHot(curHotSource).then(data => {
+        holder.textContent = '';
+        const items = Array.isArray(data.items) ? data.items : [];
+        items.forEach((it, i) => {
+            const url = sanitizeUrl(it.url);
+            if (!url || !it.title) return;
+            const row = document.createElement('a');
+            row.className = 'hot-item rv vis';
+            row.href = url;
+            row.target = '_blank';
+            row.rel = 'noopener';
+            const rank = document.createElement('span');
+            rank.className = 'hot-rank' + (i < 3 ? ' top' : '');
+            rank.textContent = String(i + 1);
+            const title = document.createElement('span');
+            title.className = 'hot-title';
+            title.textContent = it.title;
+            row.append(rank, title);
+            const hotText = formatHotVal(it.hot);
+            if (hotText) {
+                const hot = document.createElement('span');
+                hot.className = 'hot-val';
+                hot.textContent = hotText;
+                row.appendChild(hot);
+            }
+            holder.appendChild(row);
+        });
+        if (!holder.hasChildNodes()) {
+            holder.appendChild(buildNote('该榜单暂无数据。'));
+            return;
+        }
+        const updated = parseUtcTime(data.updated);
+        if (data.stale || updated) {
+            const meta = document.createElement('div');
+            meta.className = 'hot-meta';
+            meta.textContent = (data.stale ? '数据可能不是最新 · ' : '') +
+                (updated ? `更新于 ${updated.toLocaleString('zh-CN')}` : '');
+            holder.appendChild(meta);
+        }
+    }).catch(() => {
+        // 该源抓取失败：本次会话内隐藏，自动切到下一个可用源
+        hotFailed.add(curHotSource);
+        hotDataCache.delete(curHotSource);
+        if (curView === 'trending') render();
+    });
+}
+
+// ═══════════════════════════════════════════
+// HOME EXTRAS — 首页附加区：四源热榜 + 我的收藏（仅默认「全部」视图显示）
+// ═══════════════════════════════════════════
+function renderHomeExtras(show) {
+    const hotEl = document.getElementById('homeHot');
+    const favEl = document.getElementById('homeFav');
+    if (!hotEl || !favEl) return;
+    if (!show) {
+        hotEl.hidden = true;
+        favEl.hidden = true;
+        return;
+    }
+    renderHomeFav();
+    renderHomeHot();
+}
+
+// 我的收藏：复用站点卡片，无收藏时整块隐藏
+function renderHomeFav() {
+    const el = document.getElementById('homeFav');
+    if (!el) return;
+    if (curView !== 'all' || favs.length === 0) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+    }
+    const byId = new Map(S.map(s => [String(s.id), s]));
+    const items = favs.map(id => byId.get(String(id))).filter(Boolean);
+    if (items.length === 0) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+    }
+    el.hidden = false;
+    el.textContent = '';
+    el.appendChild(buildSecHead('❤️', '我的收藏'));
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+    items.forEach(s => {
+        const card = buildCard(s);
+        if (card) grid.appendChild(card);
+    });
+    el.appendChild(grid);
+}
+
+// 四源热榜：并发拉取，失败的源静默隐藏，全部失败则整块隐藏
+function renderHomeHot() {
+    const el = document.getElementById('homeHot');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = '';
+    el.appendChild(buildSecHead('📈', '热榜'));
+
+    const grid = document.createElement('div');
+    grid.className = 'home-hot-grid';
+    const loading = document.createElement('div');
+    loading.className = 'area-note';
+    loading.textContent = '热榜加载中…';
+    grid.appendChild(loading);
+    el.appendChild(grid);
+
+    const sources = HOT_SOURCES_UI.filter(s => !hotFailed.has(s.id));
+    Promise.allSettled(sources.map(s => loadHot(s.id))).then(results => {
+        loading.remove();
+        results.forEach((r, i) => {
+            const src = sources[i];
+            if (r.status === 'rejected') {
+                hotFailed.add(src.id);
+                hotDataCache.delete(src.id);
+                return;
+            }
+            const items = (Array.isArray(r.value.items) ? r.value.items : []).slice(0, 10);
+            if (items.length > 0) grid.appendChild(buildHotBlock(src, items));
+        });
+        if (!grid.hasChildNodes()) el.hidden = true;
+    });
+}
+
+function buildHotBlock(src, items) {
+    const block = document.createElement('div');
+    block.className = 'hot-block rv vis';
+
+    const head = document.createElement('div');
+    head.className = 'hot-block-head';
+    const name = document.createElement('span');
+    name.className = 'hot-block-name';
+    name.textContent = src.label;
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'hot-block-more';
+    more.textContent = '更多 →';
+    more.addEventListener('click', () => {
+        curHotSource = src.id;
+        localStorage.setItem('dognav-hot-source', src.id);
+        curView = 'trending';
+        document.querySelectorAll('.view-pill').forEach(x => x.classList.toggle('on', x.dataset.view === 'trending'));
+        render();
+        document.getElementById('viewBar').scrollIntoView({ behavior: 'smooth' });
+    });
+    head.append(name, more);
+    block.appendChild(head);
+
+    const list = document.createElement('ol');
+    list.className = 'hot-block-list';
+    items.forEach(it => {
+        const url = sanitizeUrl(it.url);
+        if (!url || !it.title) return;
+        const li = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = it.title;
+        link.title = it.title;
+        li.appendChild(link);
+        list.appendChild(li);
+    });
+    block.appendChild(list);
+    return block;
 }
 
 // ═══════════════════════════════════════════
@@ -756,10 +1002,14 @@ document.getElementById('engRow').addEventListener('click', e => {
 // ═══════════════════════════════════════════
 // CATEGORY / VIEW / TAG FILTER
 // ═══════════════════════════════════════════
-document.getElementById('catBar').addEventListener('click', e => {
-    const p = e.target.closest('.cat-pill'); if (!p) return;
-    document.querySelectorAll('.cat-pill').forEach(x => x.classList.remove('on'));
-    p.classList.add('on'); curC = p.dataset.cat; render();
+// 分类点击同时把视图重置为「全部」：分类浏览与视图浏览互斥，避免两种高亮并存
+document.getElementById('catGroup').addEventListener('click', e => {
+    const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
+    document.querySelectorAll('#catGroup .cat-pill').forEach(x => x.classList.toggle('on', x === p));
+    document.querySelectorAll('.view-pill').forEach(x => x.classList.remove('on'));
+    curC = p.dataset.cat;
+    curView = 'all';
+    render();
 });
 
 document.getElementById('viewBar').addEventListener('click', e => {
@@ -979,12 +1229,12 @@ function applyCategories(apiCats) {
         C[c.id] = { i: c.icon || '📁', l: c.name };
     });
 
-    const bar = document.getElementById('catBar');
+    const bar = document.getElementById('catGroup');
     bar.textContent = '';
     const allBtn = document.createElement('button');
     allBtn.className = 'cat-pill' + (curC === 'all' ? ' on' : '');
     allBtn.dataset.cat = 'all';
-    allBtn.textContent = '🔥 全部';
+    allBtn.textContent = '全部';
     bar.appendChild(allBtn);
     apiCats.filter(c => c.is_active).forEach(c => {
         const btn = document.createElement('button');
@@ -996,7 +1246,7 @@ function applyCategories(apiCats) {
 }
 
 function showCatBarError() {
-    const bar = document.getElementById('catBar');
+    const bar = document.getElementById('catGroup');
     bar.textContent = '';
     const msg = document.createElement('span');
     msg.className = 'bar-error';

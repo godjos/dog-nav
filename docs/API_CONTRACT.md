@@ -359,6 +359,24 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ---
 
+## 12a. Hot List（热榜聚合）
+
+### GET /api/hot/:source — 平台热榜代理
+
+`E:~1645-1670`（实现 `lib/hotlist.js`）/ `W:~861-878`（实现 `cloudflare/src/hotlist.mjs`）
+
+| 项 | 内容 |
+|---|---|
+| 鉴权 | 公开，无限流（服务端缓存兜底） |
+| 路径参数 | `source` ∈ `zhihu`（知乎热榜）、`weibo`（微博热搜）、`bilibili`（B站热榜）、`ithome`（IT之家）、`36kr`（36氪）、`sspai`（少数派），白名单外一律 `400 {"error":"Unknown hot list source"}` |
+| 成功 | `200 {"source":"<str>","name":"<str>","items":[{"title":"<str>","url":"<str>","hot":<num\|str>},...],"updated":"<ISO>","stale"?:true}`；items ≤30 条；`hot` 知乎为文案（如 "1234 万热度"）其余为数字；`stale:true` 表示上游失败、返回的是过期缓存 |
+| 错误 | `502 {"error":"Hot list upstream error"}`（上游失败且无缓存可回退） |
+| 缓存 | 成功响应内存缓存 10 分钟；上游失败时有过期缓存则回退（`stale:true`）；Worker 缓存为 per-isolate（同 S9） |
+| 上游 | 固定白名单域名（zhihu.com/weibo.com/bilibili.com/ithome.com/36kr.com/sspai.com），不接受用户传入 URL，无 SSRF 面；8s 超时；返回 <5 条视为风控页按失败处理 |
+| 测试说明 | 契约测试只锁定未知源 400；200/502 分支依赖外网，与 weather 502 分支一样不进用例表 |
+
+---
+
 ## 13. Users
 
 用户对象（列表返回）：`id, username, role, is_active, created_at`（不返回密码哈希）。
@@ -537,7 +555,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ## 契约测试
 
-`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 10 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化）、weather（坐标非法 400、启用但无 `WEATHER_API_KEY` 时 503、禁用 404）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。两个运行时的子进程均剥离 `WEATHER_API_KEY` 环境变量，保证 weather 503 分支确定性。
+`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 10 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化）、weather（坐标非法 400、启用但无 `WEATHER_API_KEY` 时 503、禁用 404）、hot（未知源 400；200/502 分支依赖外网与上游风控，不进用例表）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。两个运行时的子进程均剥离 `WEATHER_API_KEY` 环境变量，保证 weather 503 分支确定性。
 
 两个目标都以**独立子进程**启动在随机端口上，互不干扰也不与 `test/api.test.js` 的进程内单例冲突：
 

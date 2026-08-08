@@ -9,6 +9,7 @@ import {
     SESSION_TTL_MS,
 } from './auth.mjs';
 import { isPrivateHostSync, normalizeUrl } from './netutils.mjs';
+import { HOT_SOURCES, getHotList } from './hotlist.mjs';
 
 const app = new Hono();
 
@@ -855,6 +856,22 @@ app.post('/api/weather', async (c) => {
         if (v.expires <= nowTs) weatherCache.delete(k);
     }
     return c.json(data);
+});
+
+// ═══════════════════════════════════════════
+// HOT LIST API — 热榜聚合代理（实现见 hotlist.mjs）
+// ═══════════════════════════════════════════
+
+app.get('/api/hot/:source', async (c) => {
+    const source = c.req.param('source');
+    if (!HOT_SOURCES[source]) {
+        return c.json({ error: 'Unknown hot list source' }, 400);
+    }
+    try {
+        return c.json(await getHotList(source));
+    } catch {
+        return c.json({ error: 'Hot list upstream error' }, 502);
+    }
 });
 
 // ═══════════════════════════════════════════

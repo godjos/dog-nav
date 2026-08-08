@@ -606,6 +606,19 @@ const CASES = [
         },
     },
 
+    // ── Hot list (热榜聚合) ──
+    // 只有未知源的 400 是确定性行为；200/502 取决于外网与上游风控，
+    // 不进契约用例（同 weather 的 502 分支一样靠人工/集成环境验证）。
+    {
+        name: 'hot: unknown source returns 400 "Unknown hot list source"',
+        method: 'GET', path: '/api/hot/not-a-source',
+        expectStatus: 400,
+        expectFields: { error: 'string' },
+        check(res) {
+            assert.equal(res.body.error, 'Unknown hot list source');
+        },
+    },
+
     // ── Tags ──
     {
         name: 'tags: GET is public and returns an array',

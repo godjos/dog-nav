@@ -83,18 +83,23 @@
     </div>
 </section>
 
-<div class="cat-bar" id="catBar">
-    <button class="cat-pill on" data-cat="all">🔥 全部</button>
-</div>
+<section class="home-hot" id="homeHot" hidden></section>
+<section class="home-fav" id="homeFav" hidden></section>
 
-<div class="cat-bar view-bar" id="viewBar">
-    <button class="cat-pill view-pill on" data-view="all">全部</button>
-    <button class="cat-pill view-pill" data-view="featured">⭐ 编辑精选</button>
-    <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
-    <button class="cat-pill view-pill" data-view="new">🆕 最近新增</button>
-    <button class="cat-pill view-pill" data-view="fav">❤️ 收藏</button>
-    <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
-    <span class="tag-chip" id="tagFilterChip" hidden></span>
+<div class="cat-bar" id="catBar">
+    <div class="bar-group" id="catGroup">
+        <button class="cat-pill on" data-cat="all">全部</button>
+    </div>
+    <span class="bar-divider" aria-hidden="true"></span>
+    <div class="bar-group" id="viewBar">
+        <button class="cat-pill view-pill" data-view="featured">⭐ 精选</button>
+        <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
+        <button class="cat-pill view-pill" data-view="new">🆕 最新</button>
+        <button class="cat-pill view-pill" data-view="fav">❤️ 收藏</button>
+        <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
+        <button class="cat-pill view-pill" data-view="trending">📈 热榜</button>
+        <span class="tag-chip" id="tagFilterChip" hidden></span>
+    </div>
 </div>
 
 <main class="cards-area" id="cardsArea"></main>

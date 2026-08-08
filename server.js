@@ -23,6 +23,7 @@ const {
     isPrivateHostSync,
     normalizeUrl,
 } = require('./lib/netutils');
+const { HOT_SOURCES, getHotList } = require('./lib/hotlist');
 
 let db;
 
@@ -1633,6 +1634,27 @@ app.post('/api/weather', async (req, res) => {
             if (v.expires <= nowTs) weatherCache.delete(k);
         }
         res.json(data);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ═══════════════════════════════════════════
+// HOT LIST API — 热榜聚合代理（实现见 lib/hotlist.js）
+// ═══════════════════════════════════════════
+
+app.get('/api/hot/:source', async (req, res) => {
+    try {
+        const source = String(req.params.source || '');
+        if (!HOT_SOURCES[source]) {
+            return res.status(400).json({ error: 'Unknown hot list source' });
+        }
+        try {
+            res.json(await getHotList(source));
+        } catch {
+            res.status(502).json({ error: 'Hot list upstream error' });
+        }
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });
