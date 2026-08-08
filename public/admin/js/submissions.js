@@ -91,7 +91,7 @@
                     <td>${escapeHtml(s.category || '-')}</td>
                     <td>${escapeHtml(s.submitter_email || '匿名')}</td>
                     <td><span class="badge badge-${status}">${SUB_STATUS[status]}</span></td>
-                    <td>${escapeHtml(new Date(s.created_at).toLocaleString('zh-CN'))}</td>
+                    <td>${escapeHtml(parseUtcTime(s.created_at)?.toLocaleString('zh-CN') || '-')}</td>
                     <td>
                         ${s.status === 'pending' ? `
                             <input type="text" class="note-input" data-note-for="${sid}" placeholder="审核备注（选填）" maxlength="200">

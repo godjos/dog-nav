@@ -3,6 +3,7 @@
 //   escapeHtml(s)    — 转义文本，安全拼进 HTML
 //   sanitizeUrl(url) — 仅允许 http:/https:，其余返回 null
 //   sanitizeHtml(html) — 富文本白名单清洗（Quill 产出的 CMS 内容）
+//   parseUtcTime(t)  — 解析数据库 UTC 时间（sqlite/ISO 两种格式）为 Date
 // 所有页面需在自身脚本之前引入本文件。
 // ═══════════════════════════════════════════
 (function () {
@@ -85,7 +86,17 @@
         return holder.innerHTML;
     }
 
+    // 数据库时间统一为 UTC：sqlite datetime('now') 形如 "YYYY-MM-DD HH:MM:SS"，
+    // ISO 字符串（含 'T'）已自带时区信息。返回 Date 或 null，调用方自行本地化格式化。
+    function parseUtcTime(t) {
+        if (!t) return null;
+        const s = String(t);
+        const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
+        return isNaN(d.getTime()) ? null : d;
+    }
+
     window.escapeHtml = escapeHtml;
     window.sanitizeUrl = sanitizeUrl;
     window.sanitizeHtml = sanitizeHtml;
+    window.parseUtcTime = parseUtcTime;
 })();

@@ -21,7 +21,7 @@
                         <strong>${escapeHtml(u.username)}</strong>
                         <span class="badge badge-${roleCls}">${escapeHtml(u.role)}</span>
                         <span class="badge ${u.is_active ? 'badge-active' : 'badge-inactive'}">${u.is_active ? '启用' : '禁用'}</span>
-                        <div style="color:#888; font-size:13px; margin-top:4px">${escapeHtml(new Date(u.created_at).toLocaleDateString('zh-CN'))}</div>
+                        <div style="color:#888; font-size:13px; margin-top:4px">${escapeHtml(parseUtcTime(u.created_at)?.toLocaleDateString('zh-CN') || '-')}</div>
                     </div>
                     <div class="card-actions">
                         <button class="btn-toggle" data-action="toggle" data-id="${uid}" data-active="${u.is_active ? 1 : 0}">${u.is_active ? '禁用' : '启用'}</button>

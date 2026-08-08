@@ -67,7 +67,8 @@ document.getElementById('submitForm').addEventListener('submit', async function(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name, url,
-                description: desc || reason,
+                // desc 为必填项，`desc || reason` 会永远丢掉推荐理由；有理由时拼接保留
+                description: reason ? `${desc}（推荐理由：${reason}）` : desc,
                 category: cat,
                 submitter_email: contact,
                 website: honeypot // 蜜罐字段：真人留空，机器人填了会被服务端静默丢弃

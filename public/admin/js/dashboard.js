@@ -72,7 +72,17 @@
             document.getElementById('siteUrl').value = site ? site.url : '';
             document.getElementById('siteDesc').value = site ? site.description || '' : '';
             document.getElementById('siteIcon').value = site ? site.icon || '' : '';
-            document.getElementById('siteCategory').value = site ? site.category : 'recommend';
+            // 站点当前分类可能已停用/被删（不在下拉选项中），直接赋值会静默失效并
+            // 回落到第一项，保存时就把分类改错了。缺失时临时补一个选项保住原值。
+            const catSelect = document.getElementById('siteCategory');
+            const cat = site ? site.category : 'recommend';
+            if (cat && ![...catSelect.options].some(o => o.value === cat)) {
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = `${CATEGORIES[cat] || cat}（已停用）`;
+                catSelect.appendChild(opt);
+            }
+            catSelect.value = cat;
             document.getElementById('siteSort').value = site ? site.sort_order || 0 : 0;
             // 回显当前站点已关联的标签（GET /api/sites 返回的 tags 字段）
             const selectedTagIds = site && Array.isArray(site.tags) ? site.tags.map(t => Number(t.id)) : [];

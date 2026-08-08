@@ -23,10 +23,12 @@
             return s._failures !== undefined ? s._failures : (s.consecutive_failures || 0);
         }
 
-        // sqlite datetime('now') 形如 "YYYY-MM-DD HH:MM:SS"（UTC）
+        // sqlite datetime('now') 形如 "YYYY-MM-DD HH:MM:SS"（UTC）；
+        // 本会话内 applyResult() 写入的是 ISO 字符串（含 'T'，自带时区），两种都要能解析
         function parseCheckTime(t) {
             if (!t) return null;
-            const d = new Date(String(t).replace(' ', 'T') + 'Z');
+            const s = String(t);
+            const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
             return isNaN(d.getTime()) ? null : d;
         }
         function isStale(s) {

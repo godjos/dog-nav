@@ -42,7 +42,7 @@
                     <td class="detail-cell">${escapeHtml(r.detail || '-')}</td>
                     <td>${escapeHtml(r.reporter_email || '匿名')}</td>
                     <td><span class="badge badge-${status}">${status === 'pending' ? '待处理' : '已解决'}</span></td>
-                    <td>${escapeHtml(new Date(r.created_at).toLocaleString('zh-CN'))}</td>
+                    <td>${escapeHtml(parseUtcTime(r.created_at)?.toLocaleString('zh-CN') || '-')}</td>
                     <td>${r.status === 'pending' ? `<button class="btn-resolve" data-action="resolve" data-id="${rid}">标记解决</button>` : '-'}</td>
                 </tr>`;
             }).join('');
