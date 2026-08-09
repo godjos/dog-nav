@@ -10,7 +10,7 @@
 
 [![在线演示](https://img.shields.io/badge/在线演示-nav.cangdog.com-FF6B6B?style=flat-square)](https://nav.cangdog.com)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-dognav.ccgg.workers.dev-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://dognav.ccgg.workers.dev)
-[![版本](https://img.shields.io/badge/版本-3.1.0-4ECDC4?style=flat-square)]()
+[![版本](https://img.shields.io/badge/版本-3.2.0-4ECDC4?style=flat-square)]()
 [![收录站点](https://img.shields.io/badge/收录站点-150+-45B7D1?style=flat-square)]()
 [![分类](https://img.shields.io/badge/分类-10-96CEB4?style=flat-square)]()
 [![开源协议](https://img.shields.io/badge/开源协议-未指定-FFEAA7?style=flat-square)]()
@@ -179,7 +179,7 @@ npm start
 
 之后每次 push 到 `main`，Cloudflare 会自动拉取代码并重新部署。
 
-### 本地命令行部署
+### 命令行部署（受门禁保护的可信发布，推荐）
 
 ```bash
 # 克隆仓库
@@ -189,15 +189,31 @@ cd dog-nav
 # 安装依赖
 npm install
 
-# 一键部署（自动创建 D1、部署 Worker）
+# 一键发布（门禁 → 部署 → 自动验证/回滚）
 npm run deploy:cf
 ```
 
-部署脚本会自动完成：检查认证 → 创建 D1 数据库 → 更新配置 → 部署上线。
+`npm run deploy:cf` 是一条**可信发布流水线**，任何关键步骤失败都会以非零退出码终止，绝不误报"部署成功"：
+
+1. **部署前门禁**：先跑 `npm test` 和双运行时契约测试（`CONTRACT_TARGET=both npm run test:contract`），失败即终止。
+2. **自动准备**：检查认证（未登录时引导 `wrangler login`）→ 创建/发现 D1 数据库 → 同步两个 `wrangler.toml` 的 `database_id` → 记录部署前当前版本 id。
+3. **部署上线**：`wrangler deploy`，并从输出中解析真实的 `workers.dev` 地址（可用环境变量 `DEPLOY_VERIFY_URL` 覆盖）。
+4. **部署后验证**：对真实地址发 HTTP 请求做核心冒烟（首页 200/HTML、`/api/settings` 为 JSON 对象、未知热榜源返回 400）和六个外部热榜源检查（zhihu、weibo、bilibili、ithome、36kr、sspai，失败的源自动重试三轮）。
+5. **自动回滚**：核心冒烟任一失败，立即 `npx wrangler rollback <部署前版本>` 回滚并以非零退出；外部源失败则只报诊断、不回滚。
 
 **首次访问站点时，Worker 会自动创建所有数据库表并写入默认数据**（管理员账号、10 个分类、默认页面等），无需手动执行 SQL。
 
-**你的站点将上线于：** `https://dognav.<你的子域名>.workers.dev`
+**本项目实际部署于：** [https://dognav.ccgg.workers.dev](https://dognav.ccgg.workers.dev)
+
+**手动回滚：**
+
+```bash
+# 查看历史部署版本
+npx wrangler deployments list
+
+# 回滚（可带版本 id，也可不带交互选择）
+npx wrangler rollback
+```
 
 > **提示**：首次运行 `npm run deploy:cf` 会引导你登录 Cloudflare。如果你还没有账号，会引导你免费注册（Worker 免费额度足够个人使用）。
 
@@ -276,12 +292,12 @@ dog-nav/
 ├── server.js               # 本地 CMS 服务（Express + sql.js）
 ├── lib/                    # Express 端共享模块（auth.js · netutils.js）
 ├── seed.js                 # 业务数据播种脚本
-├── deploy.js               # Cloudflare 一键部署脚本
+├── deploy.js               # Cloudflare 可信发布脚本（唯一实现：门禁+验证+自动回滚）
 ├── package.json            # Node.js 依赖（CF 端依赖见 cloudflare/package.json）
 ├── wrangler.toml           # Cloudflare Workers 配置（一键部署用）
 ├── uploads/icons/          # 上传/抓取的图标（不入库）
 │
-├── test/                   # 测试：api · auth · contract（双运行时契约）
+├── test/                   # 测试：api · auth · contract（双运行时契约）· deploy（发布流程）
 ├── docs/
 │   └── API_CONTRACT.md     # 双端 API 契约文档
 │
@@ -292,7 +308,7 @@ dog-nav/
 │   │   └── netutils.mjs    # 网络工具
 │   ├── schema.sql          # D1 数据库结构（13 张表）
 │   ├── seed.sql            # 种子数据（150+ 站点）
-│   ├── deploy.js           # 一键部署脚本
+│   ├── deploy.js           # 部署兼容入口（仅转发到根目录 deploy.js）
 │   ├── wrangler.toml       # Cloudflare 配置（手动部署用）
 │   └── package.json        # CF 依赖（hono, wrangler）
 │

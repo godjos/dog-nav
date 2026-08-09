@@ -127,3 +127,14 @@ CREATE TABLE IF NOT EXISTS stats (
     referrer TEXT,
     clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 热榜持久化缓存：纯增量表，旧版本代码会忽略它
+-- payload 为最后成功榜单 JSON；失败时仅记录标准错误码，不保存原始响应
+CREATE TABLE IF NOT EXISTS hot_cache (
+    source TEXT PRIMARY KEY,
+    payload TEXT,
+    updated_at TEXT,
+    last_attempt_at TEXT,
+    last_error_code TEXT,
+    consecutive_failures INTEGER DEFAULT 0
+);

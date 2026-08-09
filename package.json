@@ -1,6 +1,6 @@
 {
   "name": "dognav",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "DogNav - 精选网址导航",
   "main": "server.js",
   "scripts": {
@@ -8,8 +8,8 @@
     "dev": "node server.js",
     "test": "node --test test/",
     "test:contract": "node --test test/contract.test.js",
-    "deploy:cf": "node cloudflare/deploy.js",
-    "deploy": "node cloudflare/deploy.js",
+    "deploy:cf": "node deploy.js",
+    "deploy": "node deploy.js",
     "db:seed": "npx wrangler d1 execute dognav --remote --file=./cloudflare/schema.sql && npx wrangler d1 execute dognav --remote --file=./cloudflare/seed.sql"
   },
   "dependencies": {

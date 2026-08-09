@@ -441,7 +441,7 @@ function render() {
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
-    // 首页附加区（热榜四源 + 我的收藏）只在默认「全部」视图展示
+    // 首页附加区（六源热榜 + 我的收藏）只在默认「全部」视图展示
     renderHomeExtras(curView === 'all');
 
     // 热榜视图与站点数据无关，走独立渲染分支
@@ -535,16 +535,23 @@ const HOT_SOURCES_UI = [
     { id: 'sspai', label: '少数派' },
 ];
 const hotDataCache = new Map(); // source -> { data, expires }（5 分钟；服务端另有 10 分钟缓存）
+const hotRequests = new Map();  // source -> Promise；首页与完整榜单复用同一请求
 const HOT_CLIENT_TTL_MS = 5 * 60 * 1000;
-const hotFailed = new Set();    // 抓取失败的源：本次会话内隐藏并自动切换
 let curHotSource = localStorage.getItem('dognav-hot-source') || 'zhihu';
 
 async function loadHot(source) {
     const hit = hotDataCache.get(source);
     if (hit && hit.expires > Date.now()) return hit.data;
-    const data = await fetchJSON('/api/hot/' + encodeURIComponent(source));
-    hotDataCache.set(source, { data, expires: Date.now() + HOT_CLIENT_TTL_MS });
-    return data;
+    const pending = hotRequests.get(source);
+    if (pending) return pending;
+    const request = fetchJSON('/api/hot/' + encodeURIComponent(source)).then(data => {
+        hotDataCache.set(source, { data, expires: Date.now() + HOT_CLIENT_TTL_MS });
+        return data;
+    }).finally(() => {
+        if (hotRequests.get(source) === request) hotRequests.delete(source);
+    });
+    hotRequests.set(source, request);
+    return request;
 }
 
 // 热度值：知乎已是文案（如 "1234 万热度"）原样透传；数字做万位缩写
@@ -558,22 +565,12 @@ function formatHotVal(v) {
 function renderTrending(a) {
     a.appendChild(buildSecHead('📈', '热榜'));
 
-    const available = HOT_SOURCES_UI.filter(s => !hotFailed.has(s.id));
-    if (!available.some(s => s.id === curHotSource)) curHotSource = available.length ? available[0].id : null;
-
-    if (!curHotSource) {
-        a.appendChild(buildNote('热榜暂时不可用，请稍后再试。', null, null, '重试', () => {
-            hotFailed.clear();
-            hotDataCache.clear();
-            render();
-        }));
-        return;
-    }
+    if (!HOT_SOURCES_UI.some(s => s.id === curHotSource)) curHotSource = HOT_SOURCES_UI[0].id;
 
     // 源切换 pill：复用 cat-pill 样式，不用 cat-bar 的吸顶容器
     const bar = document.createElement('div');
     bar.className = 'hot-src-bar rv vis';
-    available.forEach(s => {
+    HOT_SOURCES_UI.forEach(s => {
         const btn = document.createElement('button');
         btn.className = 'cat-pill' + (s.id === curHotSource ? ' on' : '');
         btn.textContent = s.label;
@@ -595,7 +592,9 @@ function renderTrending(a) {
     holder.appendChild(loading);
     a.appendChild(holder);
 
-    loadHot(curHotSource).then(data => {
+    // 固定本次渲染对应的 source，避免用户快速切换时错误地清理另一个来源。
+    const source = curHotSource;
+    loadHot(source).then(data => {
         holder.textContent = '';
         const items = Array.isArray(data.items) ? data.items : [];
         items.forEach((it, i) => {
@@ -635,15 +634,19 @@ function renderTrending(a) {
             holder.appendChild(meta);
         }
     }).catch(() => {
-        // 该源抓取失败：本次会话内隐藏，自动切到下一个可用源
-        hotFailed.add(curHotSource);
-        hotDataCache.delete(curHotSource);
-        if (curView === 'trending') render();
+        // 一次上游失败不再永久隐藏入口，让用户明确看到状态并可单源重试。
+        hotDataCache.delete(source);
+        holder.textContent = '';
+        const label = HOT_SOURCES_UI.find(s => s.id === source)?.label || '该榜单';
+        holder.appendChild(buildNote(`${label}暂时无法更新。`, null, null, '重新加载', () => {
+            hotDataCache.delete(source);
+            if (curView === 'trending' && curHotSource === source) render();
+        }));
     });
 }
 
 // ═══════════════════════════════════════════
-// HOME EXTRAS — 首页附加区：四源热榜 + 我的收藏（仅默认「全部」视图显示）
+// HOME EXTRAS — 首页附加区：六源热榜 + 我的收藏（仅默认「全部」视图显示）
 // ═══════════════════════════════════════════
 function renderHomeExtras(show) {
     const hotEl = document.getElementById('homeHot');
@@ -686,7 +689,7 @@ function renderHomeFav() {
     el.appendChild(grid);
 }
 
-// 四源热榜：并发拉取，失败的源静默隐藏，全部失败则整块隐藏
+// 六源热榜：并发拉取；部分失败时保留成功来源，全部失败时提供明确重试。
 function renderHomeHot() {
     const el = document.getElementById('homeHot');
     if (!el) return;
@@ -702,20 +705,33 @@ function renderHomeHot() {
     grid.appendChild(loading);
     el.appendChild(grid);
 
-    const sources = HOT_SOURCES_UI.filter(s => !hotFailed.has(s.id));
+    const sources = HOT_SOURCES_UI;
     Promise.allSettled(sources.map(s => loadHot(s.id))).then(results => {
         loading.remove();
+        let failedCount = 0;
         results.forEach((r, i) => {
             const src = sources[i];
             if (r.status === 'rejected') {
-                hotFailed.add(src.id);
+                failedCount += 1;
                 hotDataCache.delete(src.id);
                 return;
             }
             const items = (Array.isArray(r.value.items) ? r.value.items : []).slice(0, 10);
             if (items.length > 0) grid.appendChild(buildHotBlock(src, items));
         });
-        if (!grid.hasChildNodes()) el.hidden = true;
+        if (!grid.hasChildNodes()) {
+            const note = buildNote('热榜暂时不可用。', null, null, '重新加载', () => {
+                hotDataCache.clear();
+                renderHomeHot();
+            });
+            note.classList.add('hot-partial-note');
+            grid.appendChild(note);
+        } else if (failedCount > 0) {
+            const note = document.createElement('div');
+            note.className = 'area-note hot-partial-note';
+            note.textContent = `${failedCount} 个榜单暂时无法更新，可在热榜页单独重试。`;
+            grid.appendChild(note);
+        }
     });
 }
 

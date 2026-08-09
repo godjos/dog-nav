@@ -23,7 +23,39 @@ const {
     isPrivateHostSync,
     normalizeUrl,
 } = require('./lib/netutils');
-const { HOT_SOURCES, getHotList } = require('./lib/hotlist');
+const { HOT_SOURCES, getHotList, getHotStatus } = require('./lib/hotlist');
+
+// 热榜持久层（sql.js）：接口契约见 lib/hotlist.js 顶部注释
+// row = { source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures }
+const hotStore = {
+    async read(source) {
+        const r = db.exec('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache WHERE source=?', [source]);
+        if (!r[0] || !r[0].values[0]) return null;
+        const [src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures] = r[0].values[0];
+        return { source: src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures };
+    },
+    async readAll() {
+        const r = db.exec('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache');
+        return r[0] ? r[0].values.map(([src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures]) =>
+            ({ source: src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures })) : [];
+    },
+    async writeSuccess(source, payload, nowIso) {
+        db.run(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
+                VALUES (?, ?, ?, ?, NULL, 0)
+                ON CONFLICT(source) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at,
+                    last_attempt_at=excluded.last_attempt_at, last_error_code=NULL, consecutive_failures=0`,
+            [source, payload, nowIso, nowIso]);
+        saveDb();
+    },
+    async writeFailure(source, errorCode, nowIso) {
+        db.run(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
+                VALUES (?, NULL, NULL, ?, ?, 1)
+                ON CONFLICT(source) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,
+                    last_error_code=excluded.last_error_code, consecutive_failures=hot_cache.consecutive_failures+1`,
+            [source, nowIso, errorCode]);
+        saveDb();
+    },
+};
 
 let db;
 
@@ -267,6 +299,16 @@ async function initDb() {
         user_agent TEXT,
         referrer TEXT,
         clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // 热榜持久化缓存（实现见 lib/hotlist.js；与 cloudflare/schema.sql 保持一致）
+    db.run(`CREATE TABLE IF NOT EXISTS hot_cache (
+        source TEXT PRIMARY KEY,
+        payload TEXT,
+        updated_at TEXT,
+        last_attempt_at TEXT,
+        last_error_code TEXT,
+        consecutive_failures INTEGER DEFAULT 0
     )`);
 
     // ═══════════════════════════════════════════
@@ -1651,10 +1693,40 @@ app.get('/api/hot/:source', async (req, res) => {
             return res.status(400).json({ error: 'Unknown hot list source' });
         }
         try {
-            res.json(await getHotList(source));
+            res.json(await getHotList(source, { store: hotStore }));
         } catch {
             res.status(502).json({ error: 'Hot list upstream error' });
         }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: 六源热榜健康状态（只读持久层，不主动访问上游）
+app.get('/api/admin/hot-status', requireAuth, async (req, res) => {
+    try {
+        res.json(await getHotStatus(hotStore));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: 强制刷新单一来源（绕过新鲜缓存并等待抓取结果；只触发该来源的上游请求）
+app.post('/api/admin/hot-status/:source/refresh', requireAuth, async (req, res) => {
+    try {
+        const source = String(req.params.source || '');
+        if (!HOT_SOURCES[source]) {
+            return res.status(400).json({ error: 'Unknown hot list source' });
+        }
+        try {
+            await getHotList(source, { store: hotStore, forceRefresh: true });
+        } catch {
+            return res.status(502).json({ error: 'Hot list upstream error' });
+        }
+        const status = (await getHotStatus(hotStore)).find(s => s.source === source);
+        res.json(status);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });

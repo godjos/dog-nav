@@ -255,3 +255,103 @@
         });
 
         loadSites();
+
+        // ── 热榜来源状态 ──
+        // GET /api/admin/hot-status 为只读接口（后端保证不触发上游抓取），前端只管渲染；
+        // 只有点「重新检测」才会 POST 单个来源的 refresh。
+        const HOT_STATUS_META = {
+            fresh: { text: '新鲜', cls: 'badge-fresh' },
+            stale: { text: '陈旧', cls: 'badge-stale' },
+            unavailable: { text: '不可用', cls: 'badge-unavailable' },
+            never: { text: '从未成功', cls: 'badge-never' }
+        };
+
+        function hotTimeText(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return isNaN(d.getTime()) ? '-' : d.toLocaleString();
+        }
+
+        function hotRowHtml(h) {
+            const meta = HOT_STATUS_META[h.status] || HOT_STATUS_META.never;
+            const failures = Number(h.consecutiveFailures) || 0;
+            const err = h.lastErrorCode ? `（${escapeHtml(String(h.lastErrorCode))}）` : '';
+            return `<tr data-source="${escapeHtml(String(h.source))}">
+                <td class="site-name-cell"><span class="name">${escapeHtml(String(h.name))}</span></td>
+                <td><span class="badge ${meta.cls}">${meta.text}</span></td>
+                <td>${hotTimeText(h.updated)}</td>
+                <td>${hotTimeText(h.lastAttempt)}</td>
+                <td>${failures}${err}</td>
+                <td><button class="btn-recheck" data-action="hot-refresh" data-source="${escapeHtml(String(h.source))}">重新检测</button></td>
+            </tr>`;
+        }
+
+        function renderHotStatus(list) {
+            const tbody = document.getElementById('hotStatusBody');
+            const empty = document.getElementById('hotStatusEmpty');
+            if (!Array.isArray(list) || list.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+            tbody.innerHTML = list.map(hotRowHtml).join('');
+        }
+
+        // 用单个来源的最新状态对象只更新对应行
+        function updateHotRow(h) {
+            if (!h || !h.source) return;
+            const row = document.querySelector(`tr[data-source="${h.source}"]`);
+            if (row) row.outerHTML = hotRowHtml(h);
+        }
+
+        async function loadHotStatus() {
+            try {
+                const res = await fetch('/api/admin/hot-status', { headers: authHeaders() });
+                if (!res.ok) { toast('热榜来源状态加载失败'); return; }
+                renderHotStatus(await res.json());
+            } catch (err) {
+                toast('热榜来源状态加载失败');
+            }
+        }
+
+        async function refreshHotSource(source, btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 检测中';
+            try {
+                const res = await fetch(`/api/admin/hot-status/${encodeURIComponent(source)}/refresh`, {
+                    method: 'POST',
+                    headers: authHeaders()
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    updateHotRow(data);
+                    toast(`${data.name || source} 检测完成`);
+                } else {
+                    toast(`热榜来源检测失败${data.lastErrorCode ? `（${data.lastErrorCode}）` : ''}`);
+                    // 失败时重新拉取状态刷新该行（GET 为只读，不会触发其它来源抓取）
+                    const st = await fetch('/api/admin/hot-status', { headers: authHeaders() });
+                    if (st.ok) {
+                        const list = await st.json();
+                        const item = Array.isArray(list) ? list.find(h => h.source === source) : null;
+                        if (item) updateHotRow(item);
+                    }
+                }
+            } catch (err) {
+                toast('热榜来源检测失败：网络错误');
+            } finally {
+                // 行未被替换（按钮仍在 DOM 中）时恢复按钮
+                if (btn.isConnected) {
+                    btn.disabled = false;
+                    btn.textContent = '重新检测';
+                }
+            }
+        }
+
+        document.getElementById('hotStatusBody').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action="hot-refresh"]');
+            if (!btn || btn.disabled) return;
+            refreshHotSource(btn.dataset.source, btn);
+        });
+
+        loadHotStatus();

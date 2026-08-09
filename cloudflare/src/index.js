@@ -9,7 +9,35 @@ import {
     SESSION_TTL_MS,
 } from './auth.mjs';
 import { isPrivateHostSync, normalizeUrl } from './netutils.mjs';
-import { HOT_SOURCES, getHotList } from './hotlist.mjs';
+import { HOT_SOURCES, getHotList, getHotStatus } from './hotlist.mjs';
+
+// 热榜持久层（D1）：接口契约见 hotlist.mjs 顶部注释
+function createHotStore(db) {
+    return {
+        async read(source) {
+            return db.prepare('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache WHERE source=?')
+                .bind(source).first();
+        },
+        async readAll() {
+            const { results } = await db.prepare('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache').all();
+            return results;
+        },
+        async writeSuccess(source, payload, nowIso) {
+            await db.prepare(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
+                VALUES (?, ?, ?, ?, NULL, 0)
+                ON CONFLICT(source) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at,
+                    last_attempt_at=excluded.last_attempt_at, last_error_code=NULL, consecutive_failures=0`)
+                .bind(source, payload, nowIso, nowIso).run();
+        },
+        async writeFailure(source, errorCode, nowIso) {
+            await db.prepare(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
+                VALUES (?, NULL, NULL, ?, ?, 1)
+                ON CONFLICT(source) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,
+                    last_error_code=excluded.last_error_code, consecutive_failures=hot_cache.consecutive_failures+1`)
+                .bind(source, nowIso, errorCode).run();
+        },
+    };
+}
 
 const app = new Hono();
 
@@ -48,6 +76,7 @@ async function initDB(db, env) {
         db.prepare(`CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, reason TEXT, reporter_email TEXT, detail TEXT, reporter_ip TEXT, status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME, resolved_by INTEGER)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, ip_address TEXT, user_agent TEXT, referrer TEXT, clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS hot_cache (source TEXT PRIMARY KEY, payload TEXT, updated_at TEXT, last_attempt_at TEXT, last_error_code TEXT, consecutive_failures INTEGER DEFAULT 0)`),
     ]);
 
     // ── Idempotent migrations for databases created by older versions ──
@@ -868,10 +897,35 @@ app.get('/api/hot/:source', async (c) => {
         return c.json({ error: 'Unknown hot list source' }, 400);
     }
     try {
-        return c.json(await getHotList(source));
+        // store 注入 D1 持久层；defer 用 waitUntil 让后台 SWR 刷新在响应返回后跑完
+        return c.json(await getHotList(source, {
+            store: createHotStore(c.env.DB),
+            defer: (p) => c.executionCtx.waitUntil(p),
+        }));
     } catch {
         return c.json({ error: 'Hot list upstream error' }, 502);
     }
+});
+
+// Admin: 六源热榜健康状态（只读持久层，不主动访问上游）
+app.get('/api/admin/hot-status', requireAuth, async (c) => {
+    return c.json(await getHotStatus(createHotStore(c.env.DB)));
+});
+
+// Admin: 强制刷新单一来源（绕过新鲜缓存并等待抓取结果；只触发该来源的上游请求）
+app.post('/api/admin/hot-status/:source/refresh', requireAuth, async (c) => {
+    const source = c.req.param('source');
+    if (!HOT_SOURCES[source]) {
+        return c.json({ error: 'Unknown hot list source' }, 400);
+    }
+    const store = createHotStore(c.env.DB);
+    try {
+        await getHotList(source, { store, forceRefresh: true });
+    } catch {
+        return c.json({ error: 'Hot list upstream error' }, 502);
+    }
+    const status = (await getHotStatus(store)).find(s => s.source === source);
+    return c.json(status);
 });
 
 // ═══════════════════════════════════════════

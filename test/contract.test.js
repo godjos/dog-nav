@@ -619,6 +619,54 @@ const CASES = [
         },
     },
 
+    // ── Hot status (热榜健康状态，管理后台) ──
+    // 状态读取只读持久层、不触上游，因此无需外网即可断言字段与枚举。
+    {
+        name: 'hot-status: without auth returns 401',
+        method: 'GET', path: '/api/admin/hot-status',
+        expectStatus: 401,
+        expectFields: { error: 'string' },
+    },
+    {
+        name: 'hot-status: refresh without auth returns 401',
+        method: 'POST', path: '/api/admin/hot-status/zhihu/refresh',
+        expectStatus: 401,
+        expectFields: { error: 'string' },
+    },
+    {
+        name: 'hot-status: refresh unknown source returns 400 "Unknown hot list source"',
+        method: 'POST', path: '/api/admin/hot-status/not-a-source/refresh',
+        auth: true,
+        expectStatus: 400,
+        expectFields: { error: 'string' },
+        check(res) {
+            assert.equal(res.body.error, 'Unknown hot list source');
+        },
+    },
+    {
+        name: 'hot-status: authed returns six sources with the status enum and fixed fields',
+        method: 'GET', path: '/api/admin/hot-status',
+        auth: true,
+        expectStatus: 200,
+        expectType: 'array',
+        elementFields: {
+            source: 'string', name: 'string', status: 'string',
+            consecutiveFailures: 'number',
+        },
+        check(res) {
+            assert.equal(res.body.length, 6, 'exactly six hot sources');
+            const sources = res.body.map(s => s.source).sort();
+            assert.deepEqual(sources, ['36kr', 'bilibili', 'ithome', 'sspai', 'weibo', 'zhihu']);
+            for (const s of res.body) {
+                assert.ok(['fresh', 'stale', 'unavailable', 'never'].includes(s.status),
+                    `status enum, got "${s.status}"`);
+                for (const f of ['updated', 'lastAttempt', 'lastErrorCode']) {
+                    assert.ok(f in s, `field "${f}" present (may be null)`);
+                }
+            }
+        },
+    },
+
     // ── Tags ──
     {
         name: 'tags: GET is public and returns an array',

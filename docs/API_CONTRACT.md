@@ -369,11 +369,28 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 |---|---|
 | 鉴权 | 公开，无限流（服务端缓存兜底） |
 | 路径参数 | `source` ∈ `zhihu`（知乎热榜）、`weibo`（微博热搜）、`bilibili`（B站热榜）、`ithome`（IT之家）、`36kr`（36氪）、`sspai`（少数派），白名单外一律 `400 {"error":"Unknown hot list source"}` |
-| 成功 | `200 {"source":"<str>","name":"<str>","items":[{"title":"<str>","url":"<str>","hot":<num\|str>},...],"updated":"<ISO>","stale"?:true}`；items ≤30 条；`hot` 知乎为文案（如 "1234 万热度"）其余为数字；`stale:true` 表示上游失败、返回的是过期缓存 |
-| 错误 | `502 {"error":"Hot list upstream error"}`（上游失败且无缓存可回退） |
-| 缓存 | 成功响应内存缓存 10 分钟；上游失败时有过期缓存则回退（`stale:true`）；Worker 缓存为 per-isolate（同 S9） |
-| 上游 | 固定白名单域名（zhihu.com/weibo.com/bilibili.com/ithome.com/36kr.com/sspai.com），不接受用户传入 URL，无 SSRF 面；8s 超时；返回 <5 条视为风控页按失败处理 |
-| 测试说明 | 契约测试只锁定未知源 400；200/502 分支依赖外网，与 weather 502 分支一样不进用例表 |
+| 成功 | `200 {"source":"<str>","name":"<str>","items":[{"title":"<str>","url":"<str>","hot":<num\|str>},...],"updated":"<ISO>","stale"?:true}`；items ≤30 条；`hot` 知乎为文案（如 "1234 万热度"）其余为数字；`stale:true` 表示返回的是 10 分钟至 24 小时内的过期缓存（后台已触发一次合并刷新） |
+| 错误 | `502 {"error":"Hot list upstream error"}`（缓存超过 24 小时或从未成功且实时抓取失败；不展示更旧热点） |
+| 缓存 | 持久化 SWR（Express sql.js / Worker D1，表 `hot_cache(source PK, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)`）：10 分钟内直接返回新鲜缓存；10 分钟至 24 小时立即返回 `stale:true` 并后台合并刷新一次；超过 24 小时或从未成功则等待实时抓取；成功持久化并清零失败数，失败仅记录标准错误码（`HTTP_<status>`/`TIMEOUT`/`NETWORK`/`INVALID_PAYLOAD`），不保存原始响应；持久化 JSON 使用前重新验证来源/条目数/标题/HTTP(S) URL，损坏视为不存在；同一进程/isolate 内并发请求合并为一次上游抓取 |
+| 上游 | 固定白名单域名（zhihu.com/weibo.com/bilibili.com/ithome.com/36kr.com/sspai.com），不接受用户传入 URL，无 SSRF 面；8s 超时；网络错误及 408/425/429/5xx 最多重试 1 次，其他 4xx 不重试；返回 <5 条视为风控页按失败处理。知乎使用 `/api/v3/feed/topstory/hot-list-web` JSON 接口，不再解析会对服务器 IP 返回 403 的 `/billboard` HTML |
+| 测试说明 | 双运行时契约测试锁定未知源 400；`test/hotlist.test.js` 以模拟上游覆盖知乎 JSON 解析、瞬时错误重试、确定性 403 不重试、并发请求合并、新鲜/10 分钟/24 小时边界、冷启动持久层回退、损坏缓存、失败计数与清零、强制刷新及后台刷新合并；真实上游的 200/502 分支仍不进契约用例表 |
+
+### GET /api/admin/hot-status — 六源热榜健康状态（管理后台）
+
+| 项 | 内容 |
+|---|---|
+| 鉴权 | Bearer（requireAuth）；无 token 401 |
+| 成功 | `200 [{source,name,status,updated,lastAttempt,consecutiveFailures,lastErrorCode}]`，固定 6 元素；`status` ∈ `fresh`（≤10 分钟）\|`stale`（≤24 小时）\|`unavailable`（>24 小时或无可用缓存）\|`never`（从未成功）；`updated`/`lastAttempt` 为 ISO 或 null |
+| 副作用 | 无——只读持久层，绝不主动访问上游 |
+
+### POST /api/admin/hot-status/:source/refresh — 强制刷新单一来源
+
+| 项 | 内容 |
+|---|---|
+| 鉴权 | Bearer（requireAuth）；无 token 401 |
+| 路径参数 | 同 `/api/hot/:source` 白名单，白名单外 `400 {"error":"Unknown hot list source"}` |
+| 成功 | `200` + 该来源的最新状态对象（字段同上）；绕过新鲜缓存并等待抓取结果，只触发该来源的上游请求 |
+| 错误 | `502 {"error":"Hot list upstream error"}`（实时抓取失败；失败计数与错误码已写入持久层） |
 
 ---
 
