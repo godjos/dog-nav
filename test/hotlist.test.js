@@ -115,6 +115,77 @@ for (const runtime of ['express', 'worker']) {
         }
     });
 
+    test(`${runtime}: bilibili uses ranking/v2 when it succeeds`, async () => {
+        const originalFetch = global.fetch;
+        const urls = [];
+        global.fetch = async (url) => {
+            urls.push(String(url));
+            return jsonResponse({ code: 0, data: { list: [
+                { title: '排行榜视频', bvid: 'BV1rank', stat: { view: 100 } },
+                { title: '条目2', bvid: 'BV2', stat: { view: 99 } },
+                { title: '条目3', bvid: 'BV3', stat: { view: 98 } },
+                { title: '条目4', bvid: 'BV4', stat: { view: 97 } },
+                { title: '条目5', bvid: 'BV5', stat: { view: 96 } },
+            ] } });
+        };
+        try {
+            const { getHotList } = await loadRuntime(runtime);
+            const result = await getHotList('bilibili');
+            assert.equal(urls.length, 1, 'ranking 成功时不再请求 popular');
+            assert.match(urls[0], /ranking\/v2/);
+            assert.deepEqual(result.items[0], {
+                title: '排行榜视频',
+                url: 'https://www.bilibili.com/video/BV1rank',
+                hot: 100,
+            });
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
+    test(`${runtime}: bilibili falls back to popular when ranking is risk-controlled (-352)`, async () => {
+        const originalFetch = global.fetch;
+        const urls = [];
+        global.fetch = async (url) => {
+            urls.push(String(url));
+            if (String(url).includes('ranking/v2')) {
+                return jsonResponse({ code: -352, message: '-352', ttl: 1 });
+            }
+            return jsonResponse({ code: 0, data: { list: [
+                { title: '热门视频', bvid: 'BV1hot', stat: { view: 123456 } },
+                { title: '条目2', bvid: 'BV2', stat: { view: 99 } },
+                { title: '条目3', bvid: 'BV3', stat: { view: 98 } },
+                { title: '条目4', bvid: 'BV4', stat: { view: 97 } },
+                { title: '条目5', bvid: 'BV5', stat: { view: 96 } },
+            ] } });
+        };
+        try {
+            const { getHotList } = await loadRuntime(runtime);
+            const result = await getHotList('bilibili');
+            assert.equal(urls.length, 2, 'ranking 被风控后回退 popular');
+            assert.match(urls[0], /ranking\/v2/);
+            assert.match(urls[1], /popular/);
+            assert.deepEqual(result.items[0], {
+                title: '热门视频',
+                url: 'https://www.bilibili.com/video/BV1hot',
+                hot: 123456,
+            });
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
+    test(`${runtime}: bilibili rejects when both endpoints fail`, async () => {
+        const originalFetch = global.fetch;
+        global.fetch = async () => jsonResponse({ code: -352, message: '-352', ttl: 1 });
+        try {
+            const { getHotList } = await loadRuntime(runtime);
+            await assert.rejects(getHotList('bilibili'), /bilibili code -352/);
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
     test(`${runtime}: retries one transient upstream failure`, async () => {
         const originalFetch = global.fetch;
         let calls = 0;
