@@ -1,12 +1,5 @@
         requireLogin();
 
-        function showToast(msg, type = 'success') {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = 'toast ' + type + ' show';
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-
         async function exportData() {
             const btn = document.getElementById('exportBtn');
             setBtnLoading(btn, true, '导出中...');
@@ -82,15 +75,59 @@
             }
         }
 
+        function readFileWithProgress(file, onProgress) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onprogress = (e) => {
+                    if (e.lengthComputable) onProgress(e.loaded / e.total);
+                };
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+                reader.readAsText(file);
+            });
+        }
+
         async function importBookmarks(event) {
             const input = event.target;
             const file = input.files[0];
             if (!file) return;
 
+            const fileInfo = document.getElementById('bookmarkFileInfo');
+            const wrap = document.getElementById('bookmarkProgressWrap');
+            const fill = document.getElementById('bookmarkProgressFill');
+            const pctText = document.getElementById('bookmarkProgressText');
+            const statusEl = document.getElementById('bookmarkImportStatus');
+
+            const setProgress = (pct) => {
+                fill.style.width = pct + '%';
+                pctText.textContent = Math.round(pct) + '%';
+            };
+            const setIndeterminate = (on) => wrap.classList.toggle('indeterminate', on);
+            const setStatus = (msg, type) => {
+                statusEl.textContent = msg;
+                statusEl.className = 'import-status' + (type ? ' ' + type : '');
+            };
+
             input.disabled = true;
+            fileInfo.hidden = false;
+            fileInfo.textContent = `已选择：${file.name}（${(file.size / 1024).toFixed(1)} KB）`;
+            wrap.hidden = false;
             try {
-                const text = await file.text();
-                const data = JSON.parse(text);
+                setStatus('正在读取文件…');
+                const text = await readFileWithProgress(file, (p) => setProgress(p * 100));
+
+                setStatus('正在解析书签…');
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    setStatus('导入失败：文件不是有效的 JSON，请导出浏览器书签后重试。', 'error');
+                    showToast('文件格式错误：不是有效的 JSON', 'error');
+                    return;
+                }
+
+                setStatus('正在写入分类和站点…');
+                setIndeterminate(true);
                 const res = await fetch('/api/import/bookmarks', {
                     method: 'POST',
                     headers: authHeaders(),
@@ -98,13 +135,28 @@
                 });
                 const result = await res.json().catch(() => ({}));
                 if (res.ok) {
+                    setIndeterminate(false);
+                    setProgress(100);
+                    setStatus(`导入完成：${result.sites} 个站点、${result.categories} 个分类已写入。图标可在「站点管理」页批量修复。`, 'success');
                     showToast(`导入成功：${result.sites} 个站点，${result.categories} 个分类`);
-                } else if (res.status !== 403 && res.status !== 429) {
+                } else if (res.status === 400) {
+                    const msg = result.error === 'No bookmarks found'
+                        ? '导入失败：文件中没有可导入的书签。'
+                        : '导入失败：' + (result.error || '请求无效');
+                    setStatus(msg, 'error');
+                    showToast(msg, 'error');
+                } else if (res.status === 403 || res.status === 429 || res.status === 401) {
+                    // 401/403 由 auth.js 统一跳转/提示，429 已提示频率限制
+                    setStatus('导入未执行：没有权限或操作过于频繁。', 'error');
+                } else {
+                    setStatus('导入失败：' + (result.error || '服务器错误'), 'error');
                     showToast(result.error || '导入失败', 'error');
                 }
             } catch (err) {
-                showToast(err instanceof SyntaxError ? '文件格式错误：不是有效的 JSON' : '导入失败', 'error');
+                setStatus('导入失败：网络错误，请检查连接后重试。', 'error');
+                showToast('网络错误，导入失败', 'error');
             } finally {
+                setIndeterminate(false);
                 input.disabled = false;
                 input.value = '';
             }

@@ -1049,6 +1049,86 @@ async function readBodyCapped(resp, maxBytes) {
     return new TextDecoder().decode(buf);
 }
 
+// Fetch a page's HTML with the shared protection profile: http/https only,
+// private-host check on every hop, manual redirects ≤3, 8s timeout, 50KB cap.
+// Resolves to { origin, html } or null when the page can't be fetched.
+async function fetchPageHtml(pageUrl) {
+    let currentUrl = pageUrl;
+    let parsed = null;
+    let html = null;
+    for (let hop = 0; hop <= FETCH_ICON_MAX_REDIRECTS; hop++) {
+        try { parsed = new URL(currentUrl); } catch { return null; }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        if (isPrivateHostSync(parsed.hostname)) return null;
+        let resp;
+        try {
+            resp = await fetch(parsed.href, {
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(FETCH_ICON_TIMEOUT_MS),
+            });
+        } catch {
+            // DNS 失败/超时/连接拒绝：与 /api/fetch-icon 的兜底一致，按不可抓取处理
+            return null;
+        }
+        const location = resp.headers.get('location');
+        if (resp.status >= 300 && resp.status < 400 && location && hop < FETCH_ICON_MAX_REDIRECTS) {
+            try { resp.body && resp.body.cancel(); } catch { /* best effort */ }
+            try { currentUrl = new URL(location, parsed.href).href; } catch { return null; }
+            continue;
+        }
+        try {
+            html = await readBodyCapped(resp, FETCH_ICON_MAX_HTML_BYTES);
+        } catch {
+            return null;
+        }
+        break;
+    }
+    if (html === null) return null;
+    return { origin: parsed.origin, html };
+}
+
+// Extract { icon, title, description } from page HTML. The icon defaults to
+// <origin>/favicon.ico; relative hrefs resolve against the page origin.
+function parsePageMeta(html, origin) {
+    const iconPatterns = [
+        /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
+        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
+        /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
+        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
+    ];
+    let icon = origin + '/favicon.ico';
+    for (const pat of iconPatterns) {
+        const m = html.match(pat);
+        if (m && m[1]) {
+            let ico = m[1].trim();
+            if (ico.startsWith('data:')) { icon = ico; break; }
+            if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
+            if (ico.startsWith('/')) { icon = origin + ico; break; }
+            if (ico.startsWith('http')) { icon = ico; break; }
+            icon = origin + '/' + ico;
+            break;
+        }
+    }
+
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : '';
+
+    const descPatterns = [
+        /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i,
+        /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i,
+        /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i,
+        /<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:description["']/i,
+    ];
+    let description = '';
+    for (const pat of descPatterns) {
+        const m = html.match(pat);
+        if (m && m[1]) { description = m[1].trim(); break; }
+    }
+
+    return { icon, title, description };
+}
+
 // Only the admin UI calls this endpoint (public/admin/js/*), so it requires
 // auth like the other admin routes. Follows redirects manually and re-runs
 // the SSRF check (http/https only, no private hosts) on every hop.
@@ -1057,85 +1137,17 @@ app.get('/api/fetch-icon', requireAuth, async (c) => {
     if (!url) return c.json({ error: 'Missing url parameter' }, 400);
 
     try {
-        let currentUrl = url;
-        let parsed = null;
-        let html = null;
-        for (let hop = 0; hop <= FETCH_ICON_MAX_REDIRECTS; hop++) {
-            try { parsed = new URL(currentUrl); } catch {
-                return c.json({ icon: '', title: '', description: '' });
-            }
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-                return c.json({ icon: '', title: '', description: '' });
-            }
-            if (isPrivateHostSync(parsed.hostname)) {
-                return c.json({ icon: '', title: '', description: '' });
-            }
-            const resp = await fetch(parsed.href, {
-                headers: { 'User-Agent': 'Mozilla/5.0' },
-                redirect: 'manual',
-                signal: AbortSignal.timeout(FETCH_ICON_TIMEOUT_MS),
-            });
-            const location = resp.headers.get('location');
-            if (resp.status >= 300 && resp.status < 400 && location && hop < FETCH_ICON_MAX_REDIRECTS) {
-                try { resp.body && resp.body.cancel(); } catch { /* best effort */ }
-                try { currentUrl = new URL(location, parsed.href).href; } catch {
-                    return c.json({ icon: '', title: '', description: '' });
-                }
-                continue;
-            }
-            html = await readBodyCapped(resp, FETCH_ICON_MAX_HTML_BYTES);
-            break;
-        }
-        if (html === null) return c.json({ icon: '', title: '', description: '' });
-        const origin = parsed.origin;
-
-        // Extract icon
-        const iconPatterns = [
-            /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
-            /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
-            /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
-            /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
-        ];
-        let icon = origin + '/favicon.ico';
-        for (const pat of iconPatterns) {
-            const m = html.match(pat);
-            if (m && m[1]) {
-                let ico = m[1].trim();
-                if (ico.startsWith('data:')) { icon = ico; break; }
-                if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
-                if (ico.startsWith('/')) { icon = origin + ico; break; }
-                if (ico.startsWith('http')) { icon = ico; break; }
-                icon = origin + '/' + ico;
-                break;
-            }
-        }
-
-        // Extract title
-        const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-        const title = titleMatch ? titleMatch[1].trim() : '';
-
-        // Extract description
-        const descPatterns = [
-            /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i,
-            /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i,
-            /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i,
-            /<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:description["']/i,
-        ];
-        let description = '';
-        for (const pat of descPatterns) {
-            const m = html.match(pat);
-            if (m && m[1]) { description = m[1].trim(); break; }
-        }
-
+        const page = await fetchPageHtml(url);
+        if (!page) return c.json({ icon: '', title: '', description: '' });
+        const meta = parsePageMeta(page.html, page.origin);
         // Localize the icon as a data URI so the frontend doesn't depend on third-party servers.
         // If the remote icon can't be fetched (404, timeout, etc.), drop it —
         // storing a dead URL would leave the frontend on its fallback forever.
-        if (icon.startsWith('http')) {
-            const dataUri = await fetchIconAsDataUri(icon);
-            icon = dataUri || '';
+        if (meta.icon.startsWith('http')) {
+            const dataUri = await fetchIconAsDataUri(meta.icon);
+            meta.icon = dataUri || '';
         }
-
-        return c.json({ icon, title, description });
+        return c.json(meta);
     } catch (err) {
         return c.json({ icon: '', title: '', description: '' });
     }
@@ -1199,6 +1211,92 @@ app.post('/api/admin/localize-icons', requireAdmin, async (c) => {
         }
         await logAction(c.env.DB, c.get('userId'), 'localize_icons', `sites ${stats.sites.ok} ok/${stats.sites.fail} fail, links ${stats.links.ok} ok/${stats.links.fail} fail`);
         return c.json({ message: 'Done', ...stats });
+    } catch (err) {
+        return c.json({ error: err.message }, 500);
+    }
+});
+
+// Icons the repair flow will re-fetch: empty (frontend letter fallback),
+// remote URLs, local /uploads paths and data: image URIs. Emoji/text icons
+// are human-set and reported as "skipped" untouched.
+function isRepairableIcon(icon) {
+    const v = String(icon || '').trim();
+    if (!v) return true;
+    if (v.startsWith('http://') || v.startsWith('https://')) return true;
+    if (v.startsWith('/')) return true;
+    if (v.startsWith('data:image/')) return true;
+    return false;
+}
+
+// Fetch a fresh favicon for a site page and persist it as a data URI.
+// Reuses fetchPageHtml/parsePageMeta/fetchIconAsDataUri, so timeouts,
+// redirects, type/size caps and the per-hop SSRF guard are identical to
+// /api/fetch-icon. Resolves to the data URI ('' when nothing could be stored).
+async function fetchRepairedIconDataUri(pageUrl) {
+    const page = await fetchPageHtml(pageUrl);
+    if (!page) return '';
+    const meta = parsePageMeta(page.html, page.origin);
+    let icon = meta.icon || '';
+    if (icon.startsWith('http')) {
+        // 抓取失败说明远程图标不可用，置空而不是留死链
+        icon = await fetchIconAsDataUri(icon) || '';
+    }
+    return icon;
+}
+
+const ICON_REPAIR_BATCH_MAX = 5;
+
+// Batch icon repair for sites: re-fetch favicons for empty/remote/local/data
+// icons and persist them (data URI here, local file on Express) before
+// touching the database. A failed site keeps its old icon — an empty one
+// keeps the frontend letter fallback.
+app.post('/api/admin/repair-icons', requireAdmin, async (c) => {
+    try {
+        const { siteIds } = await c.req.json().catch(() => ({}));
+        if (!Array.isArray(siteIds) || siteIds.length === 0) {
+            return c.json({ error: 'siteIds must be a non-empty array' }, 400);
+        }
+        if (!siteIds.every(n => Number.isInteger(n))) {
+            return c.json({ error: 'siteIds must contain only integers' }, 400);
+        }
+        const ids = [...new Set(siteIds)];
+        if (ids.length > ICON_REPAIR_BATCH_MAX) {
+            return c.json({ error: `Too many site IDs (max ${ICON_REPAIR_BATCH_MAX} per batch)` }, 400);
+        }
+
+        const results = [];
+        const summary = { repaired: 0, unchanged: 0, skipped: 0, failed: 0 };
+        for (const id of ids) {
+            const site = await c.env.DB.prepare('SELECT id, url, icon FROM sites WHERE id=?').bind(id).first();
+            if (!site) {
+                results.push({ id, status: 'skipped', icon: '', reason: 'site_not_found' });
+                summary.skipped++;
+                continue;
+            }
+            const oldIcon = site.icon || '';
+            if (!isRepairableIcon(oldIcon)) {
+                results.push({ id, status: 'skipped', icon: oldIcon, reason: 'text_icon' });
+                summary.skipped++;
+                continue;
+            }
+            const icon = await fetchRepairedIconDataUri(site.url);
+            if (!icon) {
+                results.push({ id, status: 'failed', icon: oldIcon, reason: 'fetch_failed' });
+                summary.failed++;
+                continue;
+            }
+            if (icon === oldIcon) {
+                results.push({ id, status: 'unchanged', icon: oldIcon, reason: 'same_icon' });
+                summary.unchanged++;
+                continue;
+            }
+            await c.env.DB.prepare("UPDATE sites SET icon=?, updated_at=datetime('now') WHERE id=?").bind(icon, id).run();
+            results.push({ id, status: 'repaired', icon });
+            summary.repaired++;
+        }
+
+        await logAction(c.env.DB, c.get('userId'), 'repair_icons', `repaired ${summary.repaired}, unchanged ${summary.unchanged}, skipped ${summary.skipped}, failed ${summary.failed}`);
+        return c.json({ results, summary });
     } catch (err) {
         return c.json({ error: err.message }, 500);
     }
@@ -1499,45 +1597,13 @@ app.post('/api/import/bookmarks', requireAdmin, async (c) => {
     }
 
     // Fetch real favicons for imported sites in the background
-    async function fetchRealIcon(pageUrl) {
-        try {
-            const origin = new URL(pageUrl).origin;
-            const resp = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, redirect: 'follow' });
-            const html = await resp.text();
-            const patterns = [
-                /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
-                /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
-                /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
-                /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
-            ];
-            let icon = origin + '/favicon.ico';
-            for (const pat of patterns) {
-                const m = html.match(pat);
-                if (m && m[1]) {
-                    let ico = m[1].trim();
-                    if (ico.startsWith('data:')) { icon = ico; break; }
-                    if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
-                    if (ico.startsWith('/')) { icon = origin + ico; break; }
-                    if (ico.startsWith('http')) { icon = ico; break; }
-                    icon = origin + '/' + ico;
-                    break;
-                }
-            }
-            return icon;
-        } catch (e) { return ''; }
-    }
-
     async function updateIcons() {
         const limit = 5;
         for (let i = 0; i < insertedSites.length; i += limit) {
             const batch = insertedSites.slice(i, i + limit);
             await Promise.all(batch.map(async (site) => {
-                let icon = await fetchRealIcon(site.url);
-                if (icon.startsWith('http')) {
-                    const dataUri = await fetchIconAsDataUri(icon);
-                    // 抓取失败说明远程图标不可用，置空而不是留死链
-                    icon = dataUri || '';
-                }
+                const icon = await fetchRepairedIconDataUri(site.url);
+                // 抓取失败保留空值，前端字母占位兜底
                 if (icon) {
                     await c.env.DB.prepare('UPDATE sites SET icon=? WHERE url=? AND category=?').bind(icon, site.url, site.category).run();
                 }

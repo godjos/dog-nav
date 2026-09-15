@@ -747,6 +747,113 @@ test('health-check: failing site increments consecutive_failures, last_status fl
     assert.equal(del.status, 200);
 });
 
+// ── Icon repair (POST /api/admin/repair-icons) ───────────────────────────
+
+test('repair-icons: without auth returns 401; editor returns 403', async () => {
+    const unauth = await api(ctx.baseUrl, 'POST', '/api/admin/repair-icons', {
+        body: { siteIds: [1] },
+    });
+    assert.equal(unauth.status, 401);
+
+    const asEditor = await api(ctx.baseUrl, 'POST', '/api/admin/repair-icons', {
+        token: editorToken,
+        body: { siteIds: [1] },
+    });
+    assert.equal(asEditor.status, 403);
+});
+
+test('repair-icons: invalid siteIds return 400', async () => {
+    for (const siteIds of [undefined, [], 'x', [1, 2, 3, 4, 5, 6], [1.5], ['a'], [null], {}]) {
+        const body = siteIds === undefined ? {} : { siteIds };
+        const res = await api(ctx.baseUrl, 'POST', '/api/admin/repair-icons', {
+            token: adminToken,
+            body,
+        });
+        assert.equal(res.status, 400, `siteIds=${JSON.stringify(siteIds)}`);
+    }
+});
+
+test('repair-icons: emoji skipped / dead sites failed with old icons preserved / unknown id skipped', async () => {
+    const mk = (body) => api(ctx.baseUrl, 'POST', '/api/sites', { token: adminToken, body });
+    const emoji = await mk({ name: 'Repair Emoji', url: 'https://repair-emoji.example', category: 'tools', icon: '🌐' });
+    const dead = await mk({ name: 'Repair Dead', url: 'https://repair-dead.example', category: 'tools', icon: '' });
+    const deadExt = await mk({ name: 'Repair Dead Ext', url: 'https://repair-dead-ext.example', category: 'tools', icon: 'https://dead-cdn.example/favicon.png' });
+    const privateSite = await mk({ name: 'Repair Private', url: 'http://127.0.0.1:1/', category: 'tools', icon: 'https://dead-cdn.example/keep.png' });
+    for (const r of [emoji, dead, deadExt, privateSite]) assert.equal(r.status, 200);
+    const ids = [emoji.body.id, dead.body.id, deadExt.body.id, privateSite.body.id];
+
+    const res = await api(ctx.baseUrl, 'POST', '/api/admin/repair-icons', {
+        token: adminToken,
+        body: { siteIds: [...ids, 424242] },
+    });
+    assert.equal(res.status, 200);
+    const { results, summary } = res.body;
+    assert.equal(results.length, 5);
+    const byId = Object.fromEntries(results.map(r => [r.id, r]));
+
+    assert.equal(byId[emoji.body.id].status, 'skipped');
+    assert.equal(byId[emoji.body.id].reason, 'text_icon');
+    assert.equal(byId[emoji.body.id].icon, '🌐');
+
+    // 空图标 + 不可达站点 → 进入修复分支但抓取失败，空值保留（前端字母占位兜底）
+    assert.equal(byId[dead.body.id].status, 'failed');
+    assert.equal(byId[dead.body.id].reason, 'fetch_failed');
+    assert.equal(byId[dead.body.id].icon, '');
+
+    // 外链图标 + 不可达站点 → 修复失败保留旧图标，绝不清空
+    assert.equal(byId[deadExt.body.id].status, 'failed');
+    assert.equal(byId[deadExt.body.id].icon, 'https://dead-cdn.example/favicon.png');
+
+    // 私网 URL 被 SSRF 拦截 → failed 且旧图标保留
+    assert.equal(byId[privateSite.body.id].status, 'failed');
+    assert.equal(byId[privateSite.body.id].icon, 'https://dead-cdn.example/keep.png');
+
+    assert.equal(byId[424242].status, 'skipped');
+    assert.equal(byId[424242].reason, 'site_not_found');
+
+    for (const r of results) {
+        assert.ok(['repaired', 'unchanged', 'skipped', 'failed'].includes(r.status),
+            `status enum: ${r.status}`);
+    }
+    assert.deepEqual(summary, { repaired: 0, unchanged: 0, skipped: 2, failed: 3 });
+
+    // 失败/跳过不改动数据库里的图标值
+    const list = await api(ctx.baseUrl, 'GET', '/api/sites');
+    const find = (id) => list.body.find(s => s.id === id);
+    assert.equal(find(emoji.body.id).icon, '🌐');
+    assert.equal(find(dead.body.id).icon, '');
+    assert.equal(find(deadExt.body.id).icon, 'https://dead-cdn.example/favicon.png');
+    assert.equal(find(privateSite.body.id).icon, 'https://dead-cdn.example/keep.png');
+
+    for (const id of ids) {
+        const del = await api(ctx.baseUrl, 'DELETE', `/api/sites/${id}`, { token: adminToken });
+        assert.equal(del.status, 200);
+    }
+});
+
+test('repair-icons: duplicate ids are deduped to one result per id', async () => {
+    const created = await api(ctx.baseUrl, 'POST', '/api/sites', {
+        token: adminToken,
+        body: { name: 'Repair Dedupe', url: 'https://repair-dedupe.example', category: 'tools', icon: '🔥' },
+    });
+    assert.equal(created.status, 200);
+    const id = created.body.id;
+
+    const res = await api(ctx.baseUrl, 'POST', '/api/admin/repair-icons', {
+        token: adminToken,
+        body: { siteIds: [id, id, id] },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.results.length, 1);
+    assert.equal(res.body.results[0].id, id);
+    assert.equal(res.body.results[0].status, 'skipped');
+    assert.equal(res.body.results[0].reason, 'text_icon');
+    assert.deepEqual(res.body.summary, { repaired: 0, unchanged: 0, skipped: 1, failed: 0 });
+
+    const del = await api(ctx.baseUrl, 'DELETE', `/api/sites/${id}`, { token: adminToken });
+    assert.equal(del.status, 200);
+});
+
 // ── Logout ───────────────────────────────────────────────────────────────
 
 test('logout: old token is rejected afterwards', async () => {

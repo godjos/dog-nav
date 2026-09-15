@@ -2124,6 +2124,94 @@ app.post('/api/admin/localize-icons', requireAdmin, async (req, res) => {
     }
 });
 
+// Icons the repair flow will re-fetch: empty (frontend letter fallback),
+// remote URLs, local /uploads paths and data: image URIs. Emoji/text icons
+// are human-set and reported as "skipped" untouched.
+function isRepairableIcon(icon) {
+    const v = String(icon || '').trim();
+    if (!v) return true;
+    if (v.startsWith('http://') || v.startsWith('https://')) return true;
+    if (v.startsWith('/')) return true;
+    if (v.startsWith('data:image/')) return true;
+    return false;
+}
+
+// Fetch a fresh favicon for a site page and persist it locally. Resolves to
+// { icon: <persisted value> } or { reason } when no new icon could be stored.
+// Reuses fetchPageMeta/downloadIcon, so timeouts, redirects, type/size caps
+// and the per-hop SSRF guard are identical to /api/fetch-icon. Never throws.
+async function fetchRepairedIcon(siteUrl) {
+    let origin;
+    try { origin = new URL(siteUrl).origin; } catch { return { reason: 'invalid_url' }; }
+    const meta = await fetchPageMeta(siteUrl, origin);
+    let icon = meta.icon || '';
+    if (icon.startsWith('http')) {
+        // 下载失败说明远程图标不可用，置空而不是留死链
+        icon = await downloadIcon(icon) || '';
+    }
+    if (!icon) return { reason: 'fetch_failed' };
+    return { icon };
+}
+
+const ICON_REPAIR_BATCH_MAX = 5;
+
+// Batch icon repair for sites: re-fetch favicons for empty/remote/local/data
+// icons and persist them (local file here, data URI on the Worker) before
+// touching the database. A failed site keeps its old icon — an empty one
+// keeps the frontend letter fallback.
+app.post('/api/admin/repair-icons', requireAdmin, async (req, res) => {
+    try {
+        const raw = req.body && req.body.siteIds;
+        if (!Array.isArray(raw) || raw.length === 0) {
+            return res.status(400).json({ error: 'siteIds must be a non-empty array' });
+        }
+        if (!raw.every(n => Number.isInteger(n))) {
+            return res.status(400).json({ error: 'siteIds must contain only integers' });
+        }
+        const ids = [...new Set(raw)];
+        if (ids.length > ICON_REPAIR_BATCH_MAX) {
+            return res.status(400).json({ error: `Too many site IDs (max ${ICON_REPAIR_BATCH_MAX} per batch)` });
+        }
+
+        const results = [];
+        const summary = { repaired: 0, unchanged: 0, skipped: 0, failed: 0 };
+        for (const id of ids) {
+            const row = db.exec('SELECT url, icon FROM sites WHERE id=?', [id]);
+            if (!row[0] || !row[0].values.length) {
+                results.push({ id, status: 'skipped', icon: '', reason: 'site_not_found' });
+                summary.skipped++;
+                continue;
+            }
+            const [url, oldIcon] = row[0].values[0];
+            if (!isRepairableIcon(oldIcon)) {
+                results.push({ id, status: 'skipped', icon: oldIcon || '', reason: 'text_icon' });
+                summary.skipped++;
+                continue;
+            }
+            const got = await fetchRepairedIcon(url);
+            if (!got.icon) {
+                results.push({ id, status: 'failed', icon: oldIcon || '', reason: got.reason || 'fetch_failed' });
+                summary.failed++;
+                continue;
+            }
+            if (got.icon === oldIcon) {
+                results.push({ id, status: 'unchanged', icon: oldIcon || '', reason: 'same_icon' });
+                summary.unchanged++;
+                continue;
+            }
+            db.run("UPDATE sites SET icon=?, updated_at=datetime('now') WHERE id=?", [got.icon, id]);
+            results.push({ id, status: 'repaired', icon: got.icon });
+            summary.repaired++;
+        }
+
+        logAction(req.userId, 'repair_icons', `repaired ${summary.repaired}, unchanged ${summary.unchanged}, skipped ${summary.skipped}, failed ${summary.failed}`);
+        res.json({ results, summary });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // ═══════════════════════════════════════════
 // USERS API
 // ═══════════════════════════════════════════

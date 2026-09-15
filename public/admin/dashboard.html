@@ -68,7 +68,19 @@
         .tag-check input { width: auto; margin: 0; }
         .tag-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
         .btn-save:disabled, .btn-edit:disabled, .btn-delete:disabled { opacity: 0.6; cursor: not-allowed; }
-        
+
+        /* ═══ ICON REPAIR ═══ */
+        .repair-panel { margin-bottom: 16px; }
+        .repair-panel .btn-repair { padding: 10px 20px; background: #e8f0fe; color: #1a73e8; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .repair-panel .btn-repair:hover { background: #d2e3fc; }
+        .repair-panel .btn-repair:disabled { opacity: 0.6; cursor: not-allowed; }
+        .repair-panel .progress-wrap { margin-top: 12px; display: none; align-items: center; gap: 10px; }
+        .repair-panel .progress-wrap.show { display: flex; }
+        .repair-panel .progress-bar { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+        .repair-panel .progress-fill { height: 100%; width: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 4px; transition: width 0.2s; }
+        .repair-panel .progress-text { font-size: 13px; color: #666; min-width: 44px; text-align: right; }
+        .repair-status { margin-top: 10px; font-size: 14px; color: #555; line-height: 1.6; }
+
     </style>
 </head>
 <body>
@@ -129,10 +141,19 @@
 
             <div class="toolbar">
                 <button class="btn-add" id="addSiteBtn">+ 添加网站</button>
+                <button class="btn-add" id="repairIconsBtn" data-role="admin" title="重新抓取空图标、外链/失效图标的站点 favicon">🔧 修复网站图标</button>
                 <input type="text" class="search-box" id="searchBox" placeholder="搜索网站名称或描述...">
                 <select class="category-filter" id="categoryFilter">
                     <option value="">全部分类</option>
                 </select>
+            </div>
+
+            <div class="repair-panel" id="repairPanel" data-role="admin">
+                <div class="progress-wrap" id="repairProgressWrap">
+                    <div class="progress-bar"><div class="progress-fill" id="repairProgressFill"></div></div>
+                    <div class="progress-text" id="repairProgressText">0%</div>
+                </div>
+                <div class="repair-status" id="repairStatus" role="status" aria-live="polite"></div>
             </div>
 
             <div class="sites-table">

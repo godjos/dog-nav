@@ -17,11 +17,18 @@
         .file-input { display: none; }
         .file-label { display: inline-block; padding: 12px 24px; background: #f0f0f0; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #333; }
         .file-label:hover { background: #e0e0e0; }
-        .toast { position: fixed; top: 20px; right: 20px; padding: 16px 24px; background: #333; color: white; border-radius: 8px; font-size: 14px; opacity: 0; transition: all 0.3s; z-index: 1000; }
-        .toast.show { opacity: 1; }
-        .toast.success { background: #22c55e; }
-        .toast.error { background: #ef4444; }
-        
+        .btn-group:has(.file-input:disabled) .file-label { opacity: 0.6; cursor: not-allowed; }
+        .file-info { margin-top: 12px; font-size: 13px; color: #888; }
+        .progress-wrap { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+        .progress-bar { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 4px; transition: width 0.2s; }
+        .progress-wrap.indeterminate .progress-fill { width: 40% !important; animation: progress-slide 1s ease-in-out infinite; }
+        @keyframes progress-slide { 0% { margin-left: 0; } 50% { margin-left: 60%; } 100% { margin-left: 0; } }
+        .progress-text { font-size: 13px; color: #666; min-width: 40px; text-align: right; }
+        .import-status { margin-top: 10px; font-size: 14px; color: #555; line-height: 1.6; }
+        .import-status.success { color: #16a34a; }
+        .import-status.error { color: #dc2626; }
+
     </style>
 </head>
 <body data-require-role="admin">
@@ -82,17 +89,21 @@
 
             <div class="card">
                 <h2>导入浏览器书签</h2>
-                <p>从 Chrome / Firefox / Edge 导出的书签 JSON 文件导入站点。会自动按文件夹生成分类，不会覆盖现有数据。</p>
+                <p>从 Chrome / Firefox / Edge 导出的书签 JSON 文件导入站点。会自动按文件夹生成分类，不会覆盖现有数据。导入进度到 100% 仅表示分类和站点写入完成，站点图标可在「站点管理」页批量修复。</p>
                 <div class="btn-group">
                     <label class="file-label" for="bookmarkFile">选择书签文件</label>
                     <input type="file" id="bookmarkFile" class="file-input" accept=".json">
                 </div>
+                <div class="file-info" id="bookmarkFileInfo" hidden></div>
+                <div class="progress-wrap" id="bookmarkProgressWrap" hidden>
+                    <div class="progress-bar"><div class="progress-fill" id="bookmarkProgressFill"></div></div>
+                    <div class="progress-text" id="bookmarkProgressText">0%</div>
+                </div>
+                <div class="import-status" id="bookmarkImportStatus" role="status" aria-live="polite"></div>
             </div>
 
         </div>
     </div>
-
-    <div class="toast" id="toast"></div>
 
     <script src="/js/utils.js"></script>
     <script src="/admin/auth.js"></script>

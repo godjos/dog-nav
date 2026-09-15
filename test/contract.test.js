@@ -937,6 +937,125 @@ const CASES = [
         },
     },
 
+    // ── Icon repair（批量图标修复，站点管理页） ──
+    // 修复/未变化分支依赖可达外网，不进用例表；skipped/failed/校验分支
+    // 不触网即可断言（.example 域名解析失败 → fetch_failed，私网/保留
+    // 地址被 SSRF 拦截），两端一致。
+    {
+        name: 'repair-icons: without auth returns 401',
+        method: 'POST', path: '/api/admin/repair-icons',
+        body: { siteIds: [1] },
+        expectStatus: 401,
+        expectFields: { error: 'string' },
+    },
+    {
+        name: 'repair-icons: editor role returns 403 (requireAdmin)',
+        method: 'POST', path: '/api/admin/repair-icons',
+        authToken: (state) => state.editorToken,
+        body: { siteIds: [1] },
+        expectStatus: 403,
+        expectFields: { error: 'string' },
+    },
+    {
+        name: 'repair-icons: invalid siteIds return 400 (empty/over 5/non-integer)',
+        method: 'POST', path: '/api/admin/repair-icons',
+        auth: true,
+        body: {},
+        expectStatus: 400,
+        expectFields: { error: 'string' },
+        async check(res, state, ctx) {
+            for (const siteIds of [[], 'x', [1, 2, 3, 4, 5, 6], [1.5], ['a'], [null]]) {
+                const r = await ctx.api('POST', '/api/admin/repair-icons', {
+                    token: state.adminToken,
+                    body: { siteIds },
+                });
+                assert.equal(r.status, 400, `siteIds=${JSON.stringify(siteIds)}`);
+                assert.equal(typeof r.body.error, 'string');
+            }
+        },
+    },
+    {
+        name: 'repair-icons: create emoji/empty/dead-icon sites for the repair cases',
+        method: 'POST', path: '/api/sites',
+        auth: true,
+        body: { name: 'Contract Emoji Icon', url: 'https://contract-emoji-icon.example', category: 'tools', icon: '🌐' },
+        expectStatus: 200,
+        expectFields: { id: 'number', message: 'string' },
+        async check(res, state, ctx) {
+            state.repairEmojiId = res.body.id;
+            const dead = await ctx.api('POST', '/api/sites', {
+                token: state.adminToken,
+                body: { name: 'Contract Dead Icon', url: 'https://contract-dead-icon.example', category: 'tools', icon: '' },
+            });
+            assert.equal(dead.status, 200, `dead site create (body: ${dead.text.slice(0, 200)})`);
+            state.repairDeadId = dead.body.id;
+            const deadExt = await ctx.api('POST', '/api/sites', {
+                token: state.adminToken,
+                body: { name: 'Contract Dead Ext Icon', url: 'https://contract-dead-ext-icon.example', category: 'tools', icon: 'https://dead-cdn.example/favicon.png' },
+            });
+            assert.equal(deadExt.status, 200, `dead ext site create (body: ${deadExt.text.slice(0, 200)})`);
+            state.repairDeadExtId = deadExt.body.id;
+        },
+    },
+    {
+        name: 'repair-icons: emoji skipped, dead sites failed with icons preserved, summary counts match',
+        method: 'POST', path: '/api/admin/repair-icons',
+        auth: true,
+        body: (state) => ({ siteIds: [state.repairEmojiId, state.repairDeadId, state.repairDeadExtId, 987654] }),
+        expectStatus: 200,
+        expectFields: { results: 'array', summary: 'object' },
+        async check(res, state, ctx) {
+            assert.equal(res.body.results.length, 4);
+            const byId = Object.fromEntries(res.body.results.map(r => [r.id, r]));
+
+            assert.equal(byId[state.repairEmojiId].status, 'skipped');
+            assert.equal(byId[state.repairEmojiId].reason, 'text_icon');
+            assert.equal(byId[state.repairEmojiId].icon, '🌐');
+
+            assert.equal(byId[state.repairDeadId].status, 'failed');
+            assert.equal(byId[state.repairDeadId].reason, 'fetch_failed');
+            assert.equal(byId[state.repairDeadId].icon, '');
+
+            assert.equal(byId[state.repairDeadExtId].status, 'failed');
+            assert.equal(byId[state.repairDeadExtId].icon, 'https://dead-cdn.example/favicon.png');
+
+            assert.equal(byId[987654].status, 'skipped');
+            assert.equal(byId[987654].reason, 'site_not_found');
+
+            for (const r of res.body.results) {
+                assert.ok(['repaired', 'unchanged', 'skipped', 'failed'].includes(r.status),
+                    `status enum, got "${r.status}"`);
+            }
+            const s = res.body.summary;
+            assert.equal(s.skipped, 2);
+            assert.equal(s.failed, 2);
+            assert.equal(s.repaired, 0);
+            assert.equal(s.unchanged, 0);
+            assert.equal(s.repaired + s.unchanged + s.skipped + s.failed, res.body.results.length);
+
+            // 失败/跳过的站点图标在库里保持原值
+            const sites = await ctx.api('GET', '/api/sites');
+            const find = (id) => sites.body.find(x => x.id === id);
+            assert.equal(find(state.repairEmojiId).icon, '🌐');
+            assert.equal(find(state.repairDeadId).icon, '');
+            assert.equal(find(state.repairDeadExtId).icon, 'https://dead-cdn.example/favicon.png');
+        },
+    },
+    {
+        name: 'repair-icons: duplicate ids are deduped to one result per id',
+        method: 'POST', path: '/api/admin/repair-icons',
+        auth: true,
+        body: (state) => ({ siteIds: [state.repairEmojiId, state.repairEmojiId] }),
+        expectStatus: 200,
+        expectFields: { results: 'array', summary: 'object' },
+        check(res, state) {
+            assert.equal(res.body.results.length, 1);
+            assert.equal(res.body.results[0].id, state.repairEmojiId);
+            assert.equal(res.body.results[0].status, 'skipped');
+            assert.equal(res.body.summary.skipped, 1);
+        },
+    },
+
     // ── Sites delete (last: needs state.siteId intact) ──
     {
         name: 'sites: delete with auth returns 200 and removes the site',

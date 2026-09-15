@@ -450,7 +450,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ### POST /api/import/bookmarks — 浏览器书签导入
 
-`E:996-1127` / `W:1343-1494`
+`E:1039-1154` / `W:1504-1611`
 
 | 项 | 内容 |
 |---|---|
@@ -458,7 +458,8 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | 请求体 | 浏览器书签 JSON（数组 / 含 `roots` 的对象 / 单节点），递归解析文件夹为分类 |
 | 成功 | `200 {"message":"Imported <N> bookmarks","categories":<int>,"sites":<N>}` |
 | 错误 | `400 {"error":"No bookmarks found"}` |
-| 行为 | 分类 `INSERT OR IGNORE`；按 `url|category` 去重（含与现有站点比对）；无图标站点先填 Google favicon 服务 URL，再后台并发（5/批）抓真实 favicon——Express 下载为本地文件 `/uploads/icons/...`，Worker 转为 data URI 并经 `executionCtx.waitUntil` 异步执行；记日志 `import_bookmarks` |
+| 行为 | 分类 `INSERT OR IGNORE`；按 `url|category` 去重（含与现有站点比对）；**缺失图标留空**（前端首字母占位兜底，不填第三方 favicon 服务 URL），随后后台并发（5/批）抓真实 favicon——Express 下载为本地文件 `/uploads/icons/...`，Worker 转 data URI（复用 `/api/fetch-icon` 的抓取链路），Worker 经 `executionCtx.waitUntil` 异步执行；抓取失败保留空值；记日志 `import_bookmarks` |
+| 备注 | 导入进度到 100% 仅代表分类和站点写入完成；图标修复是独立操作，见 `POST /api/admin/repair-icons` |
 
 ---
 
@@ -484,7 +485,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ### GET /api/fetch-icon?url=... — 抓取页面元信息
 
-`E:1820-1836`（实现 `E:1838` 起）/ `W:984-1074`（常量 `W:953-956`）
+`E:1907-1925`（实现 `E:1937` 起）/ `W:1125-1146`（实现 `W:1055` 起）
 
 | 项 | 内容 |
 |---|---|
@@ -497,11 +498,27 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ### POST /api/admin/localize-icons — 存量外链图标本地化
 
-`E:1378-1401` / `W:687-707`
+`E:2101-2125` / `W:1187-1210`
 
 - requireAdmin；无请求体
 - 成功 `200 {"message":"Done","sites":{"ok":<int>,"fail":<int>},"links":{"ok":<int>,"fail":<int>}}`
 - 行为：遍历 `sites`/`links` 中 `icon LIKE 'http%'` 的记录逐一本地化（Express 存文件，Worker 转 data URI）；记日志 `localize_icons`
+- 兼容保留：图标修复入口已迁往 `POST /api/admin/repair-icons`（站点管理页「修复网站图标」），本接口维持原行为不变
+
+### POST /api/admin/repair-icons — 批量修复站点图标
+
+`E:2162-2212` / `W:1243-1293`
+
+| 项 | 内容 |
+|---|---|
+| 鉴权 | **requireAdmin** |
+| 请求体 | `{"siteIds":[<int>,...]}`——**每批最多 5 个**（去重后计），须为非空整数数组，超出或非整数 → `400 {"error":"siteIds must be a non-empty array" / "siteIds must contain only integers" / "Too many site IDs (max 5 per batch)"}` |
+| 成功 | `200 {"results":[{"id":<int>,"status":"repaired"\|"unchanged"\|"skipped"\|"failed","icon":"<str>","reason":"<str>"?}...],"summary":{"repaired":<int>,"unchanged":<int>,"skipped":<int>,"failed":<int>}}`（每请求 id 各一条结果，summary 为各状态计数） |
+| 状态语义 | `repaired`：成功取得并**持久化**新图标后已更新数据库（结果含新 `icon`，无 `reason`）；`unchanged`：抓到的新图标与现值相同（`reason:"same_icon"`）；`skipped`：人工设置的 emoji/文本图标（`reason:"text_icon"`）或 id 不存在（`reason:"site_not_found"`）；`failed`：抓取/下载失败（`reason:"fetch_failed"`/`"invalid_url"`），**旧图标保留不被清空**，空值继续由前端字母占位兜底 |
+| 修复范围 | 仅 `sites` 表：空图标、http(s) 外链、站内路径（`/...`）、`data:image/` 图标重新访问站点页面寻找 favicon；emoji/文本图标跳过；**不处理友链（`links`）与站点品牌图标（`settings.site_icon`）** |
+| 抓取链路 | 与 `GET /api/fetch-icon` 完全一致：复用 `fetchPageMeta`/`downloadIcon`（Express）与 `fetchPageHtml`/`parsePageMeta`/`fetchIconAsDataUri`（Worker），沿用既有超时（8s）、重定向（≤3 跳逐跳 SSRF 检查）、类型/大小限制与私网拦截 |
+| 产物差异 | Express 存本地文件返回 `/uploads/icons/<md5>.<ext>`，Worker 转 data URI（≤32KB）——同 D7/D9；其余字段与状态枚举两端一致 |
+| 副作用 | 仅在 `repaired` 时 `UPDATE sites SET icon, updated_at`；记日志 `repair_icons` |
 
 ---
 
@@ -537,7 +554,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | D6 | POST /api/upload | 真实上传：multer 落盘，≤5MB，返回 `/uploads/...` URL（E:883-892） | **占位 stub**：恒返回空 url/filename 和提示文案（W:966-970） | Worker 接 R2 实现真实上传；在实现前契约测试需跳过或标记该端点 |
 | D7 | GET /api/fetch-icon 图标产物 | 下载为本地文件 `/uploads/icons/<md5>.<ext>`（≤500KB，E:1332-1375） | 转 data URI（≤32KB，W:661-684） | 统一返回形态；Worker 接 R2 后可与 Express 一致返回 URL |
 | D8 | GET /api/fetch-icon 抓取细节 | **鉴权与限量参数已收敛（S2 已修复）**：两端均 requireAuth、http/https only、私网拦截逐跳重查、手动重定向 ≤3、8s 超时、HTML 限 50KB（E:1820-1836，实现 E:1838 起）。剩余差异：Express 做 DNS 解析判断（`isPrivateHost`）；被拦截/失败时 Express 兜底 `icon` 为 `<origin>/favicon.ico` | 无 DNS，仅 `isPrivateHostSync` 主机名+IP 字面量判断；被拦截/失败时返回全空 `{"icon":"","title":"","description":""}`（W:984-1074，常量 W:953-956） | 私网判定深度差异可保留（同 D16，Worker 平台限制）；兜底空 meta 形态建议统一 |
-| D9 | POST /api/import/bookmarks 图标回填 | 后台抓 favicon 存本地文件（E:849-869） | `waitUntil` 后台转 data URI（W:935-956） | 同 D7 |
+| D9 | POST /api/import/bookmarks 图标回填 / POST /api/admin/repair-icons 图标产物 | 抓 favicon 存本地文件 `/uploads/icons/...`（E:2143-2159 / E:1128-1150） | 转 data URI（≤32KB），书签回填经 `waitUntil` 后台执行（W:1225-1241 / W:1590-1611） | 同 D7 |
 | ~~D10~~ | ~~GET /api/export 字段~~ | **已消除**：两端导出字段完全一致，均含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 均只导出公开白名单键（E:842-881） | 同左（W:1207-1230） | — |
 | ~~D11~~ | ~~POST /api/import~~ | **已消除**：两端均支持 `pages` 导入、均有 `validateBackup` 400 校验层、成功均返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 均只导入白名单键（E:917-994） | 同左（W:1266-1341） | — |
 | ~~D12~~ | ~~settings 默认播种~~ | **已消除**：两端播种完全一致的 11 键（10 个公开键 + `weather_api_key=''` 遗留空值），含 `weather_enabled='false'`，无 `auto_nofollow`（`E:318-330`） | 同左（`W:96-106`） | — |
@@ -572,7 +589,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ## 契约测试
 
-`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 10 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化）、weather（坐标非法 400、启用但无 `WEATHER_API_KEY` 时 503、禁用 404）、hot（未知源 400；200/502 分支依赖外网与上游风控，不进用例表）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。两个运行时的子进程均剥离 `WEATHER_API_KEY` 环境变量，保证 weather 503 分支确定性。
+`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 10 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化）、weather（坐标非法 400、启用但无 `WEATHER_API_KEY` 时 503、禁用 404）、hot（未知源 400；200/502 分支依赖外网与上游风控，不进用例表）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）、**repair-icons（未鉴权 401、editor 403、非法/超 5 个 id 400、emoji 图标 skipped、不可达站点 failed 且旧图标保留、结果状态枚举与 summary 计数、重复 id 去重）**。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。两个运行时的子进程均剥离 `WEATHER_API_KEY` 环境变量，保证 weather 503 分支确定性。
 
 两个目标都以**独立子进程**启动在随机端口上，互不干扰也不与 `test/api.test.js` 的进程内单例冲突：
 
@@ -591,4 +608,4 @@ CONTRACT_TARGET=both npm run test:contract       # 两端各跑一遍同一用�
 
 ---
 
-> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。
+> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-09-15）：新增 `POST /api/admin/repair-icons`（§17，站点管理页批量图标修复；D9 扩展）；修正 §15 书签导入描述——缺失图标留空 + 后台抓取，不再「先填 Google favicon URL」；§17 抓取实现行号重校（Worker `/api/fetch-icon` 抽取为 `fetchPageHtml`/`parsePageMeta` 并与书签导入回填、`repair-icons` 复用）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。

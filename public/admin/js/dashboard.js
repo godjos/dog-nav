@@ -195,6 +195,81 @@
             }
         });
 
+        // ═══ 批量图标修复 ═══
+        // 与后端 /api/admin/repair-icons 同一套判定：空图标、外链 URL、站内路径、
+        // data:image 图标进入修复；emoji/文本图标跳过；友链与站点品牌图标不涉及。
+        function isRepairableIcon(icon) {
+            const v = String(icon || '').trim();
+            if (!v) return true;
+            if (v.startsWith('http://') || v.startsWith('https://')) return true;
+            if (v.startsWith('/')) return true;
+            if (v.startsWith('data:image/')) return true;
+            return false;
+        }
+
+        async function repairIcons() {
+            const btn = document.getElementById('repairIconsBtn');
+            if (btn.disabled) return; // 执行期间禁止重复启动
+            const targets = allSites.filter(s => isRepairableIcon(s.icon));
+            if (targets.length === 0) {
+                showToast('没有需要修复的图标');
+                return;
+            }
+            if (!confirm(`将对 ${targets.length} 个站点重新抓取图标：\n空图标、外链/失效图标会重新访问站点抓取 favicon；emoji/文本图标自动跳过；抓取失败的站点保留原图标。\n\n确定继续？`)) return;
+
+            const wrap = document.getElementById('repairProgressWrap');
+            const fill = document.getElementById('repairProgressFill');
+            const pctText = document.getElementById('repairProgressText');
+            const statusEl = document.getElementById('repairStatus');
+            const total = targets.length;
+            let done = 0;
+            const summary = { repaired: 0, unchanged: 0, skipped: 0, failed: 0 };
+
+            const updateProgress = () => {
+                const pct = Math.round(done / total * 100);
+                fill.style.width = pct + '%';
+                pctText.textContent = pct + '%';
+                statusEl.textContent = `正在修复网站图标（${done}/${total}）…`;
+            };
+
+            setBtnLoading(btn, true, '修复中...');
+            wrap.classList.add('show');
+            updateProgress();
+            try {
+                for (let i = 0; i < targets.length; i += 5) {
+                    const batch = targets.slice(i, i + 5);
+                    const res = await fetch('/api/admin/repair-icons', {
+                        method: 'POST',
+                        headers: authHeaders(),
+                        body: JSON.stringify({ siteIds: batch.map(s => s.id) })
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        if (res.status !== 403 && res.status !== 429 && res.status !== 401) {
+                            showToast(data.error || '修复失败', 'error');
+                        }
+                        statusEl.textContent = `修复中断（已完成 ${done}/${total}），可重新点击按钮继续。`;
+                        return;
+                    }
+                    const data = await res.json();
+                    for (const r of (data.results || [])) {
+                        if (r.status in summary) summary[r.status]++;
+                    }
+                    done += batch.length;
+                    updateProgress();
+                }
+                fill.style.width = '100%';
+                pctText.textContent = '100%';
+                statusEl.textContent = `修复完成：修复 ${summary.repaired} 个，未变化 ${summary.unchanged} 个，跳过 ${summary.skipped} 个，失败 ${summary.failed} 个。`;
+                loadSites(); // 结束后刷新列表，显示新图标
+            } catch (err) {
+                showToast('网络错误，修复中断', 'error');
+                statusEl.textContent = `修复中断（已完成 ${done}/${total}），可重新点击按钮继续。`;
+            } finally {
+                setBtnLoading(btn, false);
+            }
+        }
+
         function showToast(msg, type = 'success') {
             let t = document.getElementById('toast');
             if (!t) { t = document.createElement('div'); t.id = 'toast'; t.style.cssText = 'position:fixed;top:20px;right:20px;padding:12px 20px;background:#333;color:#fff;border-radius:8px;font-size:14px;z-index:9999;opacity:0;transition:opacity .3s'; document.body.appendChild(t); }
@@ -287,6 +362,7 @@
 
         // ═══ 静态按钮与表格行按钮的事件绑定（原 HTML onclick，CSP 下改为 JS 绑定）═══
         document.getElementById('addSiteBtn').addEventListener('click', () => openModal());
+        document.getElementById('repairIconsBtn').addEventListener('click', repairIcons);
         document.getElementById('fetchDescBtn').addEventListener('click', fetchDesc);
         document.getElementById('fetchIconBtn').addEventListener('click', fetchIcon);
         document.getElementById('siteCancelBtn').addEventListener('click', closeModal);
