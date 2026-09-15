@@ -1,12 +1,15 @@
 // ═══════════════════════════════════════════
-// DogNav 首页脚本
+// DogNav 首页脚本（Kaka 式轻量首页）
 // 站点设置（favicon、标题、主题色、页脚、投稿/天气开关）由
 // /js/settings-loader.js 统一加载；本文件含天气组件交互逻辑。
+// 视图层级：分类行（全部+分类+更多/抽屉）与内容模式行（精选/热门/
+// 最新/收藏/最近/热榜）互斥；默认只展示「推荐」分类；热榜仅在进入
+// 热榜模式后加载。
 // ═══════════════════════════════════════════
 
 // ═══════════════════════════════════════════
 // THEME — persisted across pages via localStorage
-// ══════════════════════════════════════════
+// ═══════════════════════════════════════════
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');
 if (savedTheme) H.setAttribute('data-theme', savedTheme);
@@ -48,6 +51,7 @@ const VIEW_META = {
 
 let curE = 'baidu', curC = 'all', curView = 'all', curTag = null;
 let sitesLoaded = false; // /api/sites 成功返回后才为 true
+let initialCatResolved = false; // 首屏默认分类（推荐 → 第一个有效分类）只解析一次
 
 // ═══════════════════════════════════════════
 // LOCAL STORAGE — 收藏与最近访问（无账号）
@@ -101,8 +105,7 @@ function toast(text) {
 // ═══════════════════════════════════════════
 // RENDER — DOM API 构建，数据不拼 innerHTML
 // ═══════════════════════════════════════════
-// favicon 加载失败时的回退图标：按站名 hash 取柔和底色 + 首字母，
-// 圆角方块与卡片图标位对齐（避免圆形占位与容器形状冲突）。
+// favicon 加载失败时的回退图标：按站名 hash 取柔和底色 + 首字母
 const FALLBACK_COLORS = ['#5b8def', '#45b983', '#e9a13b', '#e06c6c', '#8b7cf6', '#4ecdc4', '#ec8cbb', '#7fb069'];
 function iconFallbackUri(name) {
     const str = name || '网';
@@ -192,7 +195,7 @@ function buildCard(s) {
         img.src = iconUrl;
         img.alt = '';
         img.loading = 'lazy';
-        img.style.cssText = 'width:26px;height:26px;border-radius:6px;object-fit:cover';
+        img.style.cssText = 'width:36px;height:36px;border-radius:10px;object-fit:cover';
         img.onerror = () => { img.onerror = null; img.src = iconFallbackUri(name); };
         fav.appendChild(img);
     } else {
@@ -241,7 +244,6 @@ function buildCard(s) {
             star.setAttribute('aria-pressed', on ? 'true' : 'false');
             star.setAttribute('aria-label', star.title);
             if (curView === 'fav' && !on) render();
-            renderHomeFav(); // 首页收藏区同步增删
         });
         a.appendChild(star);
 
@@ -436,53 +438,65 @@ function buildNote(text, linkText, linkHref, btnText, btnFn) {
     return note;
 }
 
+function buildCardGrid(items) {
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+    items.forEach(s => {
+        const card = buildCard(s);
+        if (card) grid.appendChild(card);
+    });
+    return grid;
+}
+
 function render() {
     if (!sitesLoaded) return; // 数据未就绪：保留加载/错误态，不覆盖
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
-    // 首页附加区（六源热榜 + 我的收藏）只在默认「全部」视图展示
-    renderHomeExtras(curView === 'all');
+    updateNavHighlight();
+    buildTagNav();
 
-    // 热榜视图与站点数据无关，走独立渲染分支
-    if (curView === 'trending') { renderTrending(a); return; }
+    // 热榜视图与站点数据无关，走独立渲染分支（仅此刻才请求热榜接口）
+    if (curView === 'trending') { renderTrending(a); initReveal(); return; }
 
     if (S.length === 0) {
         a.appendChild(buildNote('暂无站点，欢迎投稿。', '去投稿 →', 'contribute.html'));
         return;
     }
 
-    let items = S.filter(siteMatchesFilters);
+    const items = S.filter(siteMatchesFilters);
 
     if (curView === 'all') {
-        // 按分类分组展示
-        const g = {};
-        items.forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
-        const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
-        for (const k of orderedKeys) {
-            const c = C[k] || { i: '📁', l: k };
+        if (curC === 'all') {
+            // 「全部」模式：Kaka 式分组导航——分类标题 + 分隔线 + 该分类网站
+            const g = {};
+            items.forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
+            const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
+            for (const k of orderedKeys) {
+                const c = C[k] || { i: '📁', l: k };
+                a.appendChild(buildSecHead(c.i, c.l));
+                a.appendChild(buildCardGrid(g[k]));
+            }
+        } else {
+            // 默认单分类：分组标题简化（导航行已高亮当前分类）
+            const c = C[curC] || { i: '📁', l: curC };
             a.appendChild(buildSecHead(c.i, c.l));
-            const grid = document.createElement('div');
-            grid.className = 'card-grid';
-            g[k].forEach(s => {
-                const card = buildCard(s);
-                if (card) grid.appendChild(card);
-            });
-            a.appendChild(grid);
+            a.appendChild(buildCardGrid(items));
         }
     } else {
+        let viewItems = items;
         const byId = new Map(S.map(s => [String(s.id), s]));
         if (curView === 'hot') {
-            items = [...items].sort((x, y) => (y.click_count || 0) - (x.click_count || 0));
+            viewItems = [...items].sort((x, y) => (y.click_count || 0) - (x.click_count || 0));
         } else if (curView === 'new') {
-            items = [...items].sort((x, y) => parseSqliteTime(y.created_at) - parseSqliteTime(x.created_at));
+            viewItems = [...items].sort((x, y) => parseSqliteTime(y.created_at) - parseSqliteTime(x.created_at));
         } else if (curView === 'fav') {
-            items = favs.map(id => byId.get(String(id))).filter(s => s && siteMatchesFilters(s));
+            viewItems = favs.map(id => byId.get(String(id))).filter(s => s && siteMatchesFilters(s));
         } else if (curView === 'recent') {
-            items = recent.map(r => byId.get(String(r.id))).filter(s => s && siteMatchesFilters(s));
+            viewItems = recent.map(r => byId.get(String(r.id))).filter(s => s && siteMatchesFilters(s));
         }
 
-        if (items.length === 0) {
+        if (viewItems.length === 0) {
             if (curView === 'fav') {
                 a.appendChild(buildNote('还没有收藏任何站点，点击卡片上的 ☆ 收藏喜欢的站点。'));
             } else if (curView === 'recent') {
@@ -495,13 +509,7 @@ function render() {
 
         const meta = VIEW_META[curView] || { i: '📁', l: '' };
         a.appendChild(buildSecHead(meta.i, meta.l));
-        const grid = document.createElement('div');
-        grid.className = 'card-grid';
-        items.forEach(s => {
-            const card = buildCard(s);
-            if (card) grid.appendChild(card);
-        });
-        a.appendChild(grid);
+        a.appendChild(buildCardGrid(viewItems));
     }
 
     // 「全部」视图 + 筛选条件下也可能为空
@@ -514,17 +522,23 @@ function render() {
 }
 
 function clearFilters() {
-    curC = 'all';
+    curC = defaultCategory();
     curView = 'all';
     curTag = null;
-    document.querySelectorAll('.cat-pill').forEach(x => x.classList.toggle('on', x.dataset.cat === 'all'));
-    document.querySelectorAll('.view-pill').forEach(x => x.classList.toggle('on', x.dataset.view === 'all'));
     updateTagChip();
     render();
 }
 
+// 默认分类：推荐优先，其次第一个有效分类，最后才退回「全部」
+function defaultCategory() {
+    if (C['recommend']) return 'recommend';
+    const first = Object.keys(C)[0];
+    return first || 'all';
+}
+
 // ═══════════════════════════════════════════
-// HOT LIST — 热榜视图（服务端聚合代理 /api/hot/:source）
+// HOT LIST — 热榜模式（服务端聚合代理 /api/hot/:source）
+// 仅在用户进入「热榜」模式后加载，不再默认展开六源数据
 // ═══════════════════════════════════════════
 const HOT_SOURCES_UI = [
     { id: 'zhihu', label: '知乎热榜' },
@@ -535,7 +549,7 @@ const HOT_SOURCES_UI = [
     { id: 'sspai', label: '少数派' },
 ];
 const hotDataCache = new Map(); // source -> { data, expires }（5 分钟；服务端另有 10 分钟缓存）
-const hotRequests = new Map();  // source -> Promise；首页与完整榜单复用同一请求
+const hotRequests = new Map();  // source -> Promise；复用同一请求
 const HOT_CLIENT_TTL_MS = 5 * 60 * 1000;
 let curHotSource = localStorage.getItem('dognav-hot-source') || 'zhihu';
 
@@ -567,7 +581,7 @@ function renderTrending(a) {
 
     if (!HOT_SOURCES_UI.some(s => s.id === curHotSource)) curHotSource = HOT_SOURCES_UI[0].id;
 
-    // 源切换 pill：复用 cat-pill 样式，不用 cat-bar 的吸顶容器
+    // 源切换 pill
     const bar = document.createElement('div');
     bar.className = 'hot-src-bar rv vis';
     HOT_SOURCES_UI.forEach(s => {
@@ -646,144 +660,11 @@ function renderTrending(a) {
 }
 
 // ═══════════════════════════════════════════
-// HOME EXTRAS — 首页附加区：六源热榜 + 我的收藏（仅默认「全部」视图显示）
-// ═══════════════════════════════════════════
-function renderHomeExtras(show) {
-    const hotEl = document.getElementById('homeHot');
-    const favEl = document.getElementById('homeFav');
-    if (!hotEl || !favEl) return;
-    if (!show) {
-        hotEl.hidden = true;
-        favEl.hidden = true;
-        return;
-    }
-    renderHomeFav();
-    renderHomeHot();
-}
-
-// 我的收藏：复用站点卡片，无收藏时整块隐藏
-function renderHomeFav() {
-    const el = document.getElementById('homeFav');
-    if (!el) return;
-    if (curView !== 'all' || favs.length === 0) {
-        el.hidden = true;
-        el.textContent = '';
-        return;
-    }
-    const byId = new Map(S.map(s => [String(s.id), s]));
-    const items = favs.map(id => byId.get(String(id))).filter(Boolean);
-    if (items.length === 0) {
-        el.hidden = true;
-        el.textContent = '';
-        return;
-    }
-    el.hidden = false;
-    el.textContent = '';
-    el.appendChild(buildSecHead('❤️', '我的收藏'));
-    const grid = document.createElement('div');
-    grid.className = 'card-grid';
-    items.forEach(s => {
-        const card = buildCard(s);
-        if (card) grid.appendChild(card);
-    });
-    el.appendChild(grid);
-}
-
-// 六源热榜：并发拉取；部分失败时保留成功来源，全部失败时提供明确重试。
-function renderHomeHot() {
-    const el = document.getElementById('homeHot');
-    if (!el) return;
-    el.hidden = false;
-    el.textContent = '';
-    el.appendChild(buildSecHead('📈', '热榜'));
-
-    const grid = document.createElement('div');
-    grid.className = 'home-hot-grid';
-    const loading = document.createElement('div');
-    loading.className = 'area-note';
-    loading.textContent = '热榜加载中…';
-    grid.appendChild(loading);
-    el.appendChild(grid);
-
-    const sources = HOT_SOURCES_UI;
-    Promise.allSettled(sources.map(s => loadHot(s.id))).then(results => {
-        loading.remove();
-        let failedCount = 0;
-        results.forEach((r, i) => {
-            const src = sources[i];
-            if (r.status === 'rejected') {
-                failedCount += 1;
-                hotDataCache.delete(src.id);
-                return;
-            }
-            const items = (Array.isArray(r.value.items) ? r.value.items : []).slice(0, 10);
-            if (items.length > 0) grid.appendChild(buildHotBlock(src, items));
-        });
-        if (!grid.hasChildNodes()) {
-            const note = buildNote('热榜暂时不可用。', null, null, '重新加载', () => {
-                hotDataCache.clear();
-                renderHomeHot();
-            });
-            note.classList.add('hot-partial-note');
-            grid.appendChild(note);
-        } else if (failedCount > 0) {
-            const note = document.createElement('div');
-            note.className = 'area-note hot-partial-note';
-            note.textContent = `${failedCount} 个榜单暂时无法更新，可在热榜页单独重试。`;
-            grid.appendChild(note);
-        }
-    });
-}
-
-function buildHotBlock(src, items) {
-    const block = document.createElement('div');
-    block.className = 'hot-block rv vis';
-
-    const head = document.createElement('div');
-    head.className = 'hot-block-head';
-    const name = document.createElement('span');
-    name.className = 'hot-block-name';
-    name.textContent = src.label;
-    const more = document.createElement('button');
-    more.type = 'button';
-    more.className = 'hot-block-more';
-    more.textContent = '更多 →';
-    more.addEventListener('click', () => {
-        curHotSource = src.id;
-        localStorage.setItem('dognav-hot-source', src.id);
-        curView = 'trending';
-        document.querySelectorAll('.view-pill').forEach(x => x.classList.toggle('on', x.dataset.view === 'trending'));
-        render();
-        document.getElementById('viewBar').scrollIntoView({ behavior: 'smooth' });
-    });
-    head.append(name, more);
-    block.appendChild(head);
-
-    const list = document.createElement('ol');
-    list.className = 'hot-block-list';
-    items.forEach(it => {
-        const url = sanitizeUrl(it.url);
-        if (!url || !it.title) return;
-        const li = document.createElement('li');
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = it.title;
-        link.title = it.title;
-        li.appendChild(link);
-        list.appendChild(li);
-    });
-    block.appendChild(list);
-    return block;
-}
-
-// ═══════════════════════════════════════════
-// SEARCH — 站内优先 + 外部引擎兜底
+// SEARCH — 站内优先 + 外部引擎兜底（引擎选择内嵌输入框左侧）
 // ═══════════════════════════════════════════
 const searchInput = document.getElementById('searchInput');
 const searchPanel = document.getElementById('searchPanel');
-const searchBox = searchInput.closest('.search-box');
+const searchBox = searchInput.closest('.search-wrap');
 let searchTimer = null;
 let srItems = [];   // 当前面板项 { kind:'url'|'site'|'ext', url, el }
 let srActive = -1;
@@ -926,7 +807,7 @@ function updateSearchPanel() {
         p.textContent = '未找到相关站点';
         const row = document.createElement('div');
         row.className = 'sr-ext-row';
-        [['baidu', '百度搜'], ['google', 'Google 搜']].forEach(([eng, label], i) => {
+        [['baidu', '百度搜'], ['google', 'Google 搜']].forEach(([eng, label]) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'sr-ext-btn';
@@ -1008,30 +889,130 @@ document.addEventListener('click', e => {
     if (!searchBox.contains(e.target)) closePanel();
 });
 
-document.getElementById('engRow').addEventListener('click', e => {
-    const b = e.target.closest('.eng-btn'); if (!b) return;
-    document.querySelectorAll('.eng-btn').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); curE = b.dataset.engine;
-    searchInput.placeholder = `在 ${E[curE].n} 中搜索...`;
-});
+// 引擎选择器：内嵌输入框左侧的自定义下拉
+(function initEngineSelect() {
+    const currentBtn = document.getElementById('engCurrent');
+    const menu = document.getElementById('engMenu');
+
+    function renderMenu() {
+        menu.textContent = '';
+        Object.entries(E).forEach(([key, eng]) => {
+            const opt = document.createElement('button');
+            opt.type = 'button';
+            opt.className = 'eng-option' + (key === curE ? ' on' : '');
+            opt.setAttribute('role', 'option');
+            opt.setAttribute('aria-selected', key === curE ? 'true' : 'false');
+            opt.textContent = eng.n;
+            opt.dataset.engine = key;
+            menu.appendChild(opt);
+        });
+    }
+
+    function openMenu() {
+        renderMenu();
+        menu.hidden = false;
+        currentBtn.setAttribute('aria-expanded', 'true');
+    }
+    function closeMenu() {
+        menu.hidden = true;
+        currentBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    currentBtn.addEventListener('click', () => {
+        if (menu.hidden) openMenu(); else closeMenu();
+    });
+    menu.addEventListener('click', e => {
+        const opt = e.target.closest('.eng-option'); if (!opt) return;
+        curE = opt.dataset.engine;
+        currentBtn.textContent = E[curE].n;
+        closeMenu();
+        searchInput.focus();
+    });
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.eng-select')) closeMenu();
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeMenu();
+    });
+})();
 
 // ═══════════════════════════════════════════
-// CATEGORY / VIEW / TAG FILTER
+// CATEGORY / VIEW / TAG FILTER — 分类与模式互斥
 // ═══════════════════════════════════════════
-// 分类点击同时把视图重置为「全部」：分类浏览与视图浏览互斥，避免两种高亮并存
-document.getElementById('catGroup').addEventListener('click', e => {
-    const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
-    document.querySelectorAll('#catGroup .cat-pill').forEach(x => x.classList.toggle('on', x === p));
-    document.querySelectorAll('.view-pill').forEach(x => x.classList.remove('on'));
-    curC = p.dataset.cat;
+function selectCategory(id) {
+    curC = id;
     curView = 'all';
+    curTag = null;
+    updateTagChip();
     render();
+}
+
+function selectView(view) {
+    curView = view;
+    curC = 'all';
+    curTag = null;
+    updateTagChip();
+    render();
+    // 模式切换后让面板头部回到视口顶部附近，避免长列表停在中间
+    const head = document.querySelector('.panel-head');
+    if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateNavHighlight() {
+    // 分类行：仅在普通浏览（curView==='all'）时高亮分类
+    document.querySelectorAll('#catPills .cat-pill, #catMoreMenu .cat-pill').forEach(x => {
+        x.classList.toggle('on', curView === 'all' && x.dataset.cat === curC);
+    });
+    // 模式行
+    document.querySelectorAll('.view-pill').forEach(x => {
+        x.classList.toggle('on', curView === x.dataset.view);
+    });
+    // 移动端抽屉
+    document.querySelectorAll('#drawerCats .drawer-item').forEach(x => {
+        x.classList.toggle('on', curView === 'all' && x.dataset.cat === curC);
+    });
+    document.querySelectorAll('#drawerModes .drawer-item').forEach(x => {
+        x.classList.toggle('on', curView === x.dataset.view);
+    });
+    syncMoreBtnLabel();
+}
+
+function syncMoreBtnLabel() {
+    const btn = document.getElementById('catMoreBtn');
+    if (!btn) return;
+    const activeInMenu = curView === 'all' &&
+        document.querySelector('#catMoreMenu .cat-pill.on') !== null;
+    btn.classList.toggle('has-active', activeInMenu);
+}
+
+document.getElementById('catPills').addEventListener('click', e => {
+    const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
+    selectCategory(p.dataset.cat);
+});
+document.getElementById('catMoreMenu').addEventListener('click', e => {
+    const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
+    selectCategory(p.dataset.cat);
+    document.getElementById('catMoreMenu').hidden = true;
+    document.getElementById('catMoreBtn').setAttribute('aria-expanded', 'false');
+});
+
+document.getElementById('catMoreBtn').addEventListener('click', () => {
+    const menu = document.getElementById('catMoreMenu');
+    const btn = document.getElementById('catMoreBtn');
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+document.addEventListener('click', e => {
+    if (!e.target.closest('.cat-more')) {
+        document.getElementById('catMoreMenu').hidden = true;
+        document.getElementById('catMoreBtn').setAttribute('aria-expanded', 'false');
+    }
 });
 
 document.getElementById('viewBar').addEventListener('click', e => {
     const p = e.target.closest('.view-pill'); if (!p) return;
-    document.querySelectorAll('.view-pill').forEach(x => x.classList.remove('on'));
-    p.classList.add('on'); curView = p.dataset.view; render();
+    selectView(p.dataset.view);
 });
 
 function setTagFilter(tag) {
@@ -1041,6 +1022,7 @@ function setTagFilter(tag) {
         curTag = { id: tag.id, name: tag.name };
     }
     updateTagChip();
+    buildTagNav();
     render();
 }
 
@@ -1057,14 +1039,72 @@ function updateTagChip() {
     x.className = 'tag-chip-x';
     x.textContent = '✕';
     x.setAttribute('aria-label', '清除标签筛选');
-    x.addEventListener('click', () => { curTag = null; updateTagChip(); render(); });
+    x.addEventListener('click', () => { curTag = null; updateTagChip(); buildTagNav(); render(); });
     chip.append(label, x);
 }
 
+// 可选第二级导航：当前分类存在标签时显示标签筛选
+function buildTagNav() {
+    const nav = document.getElementById('tagNav');
+    if (!nav) return;
+    nav.textContent = '';
+    const show = curView === 'all' && curC !== 'all';
+    if (!show) { nav.hidden = true; return; }
+    const scope = S.filter(s => s.category === curC);
+    const byId = new Map();
+    scope.forEach(s => (Array.isArray(s.tags) ? s.tags : []).forEach(t => {
+        if (t && t.name && !byId.has(String(t.id))) byId.set(String(t.id), t);
+    }));
+    if (byId.size === 0) { nav.hidden = true; return; }
+    [...byId.values()].forEach(t => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'tag-filter-chip';
+        chip.textContent = `# ${t.name}`;
+        const active = curTag && String(curTag.id) === String(t.id);
+        chip.classList.toggle('on', !!active);
+        chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+        chip.addEventListener('click', () => setTagFilter(t));
+        nav.appendChild(chip);
+    });
+    nav.hidden = false;
+}
+
 // ═══════════════════════════════════════════
-// MOBILE NAV
+// MOBILE NAV + CATEGORY DRAWER
 // ═══════════════════════════════════════════
 document.getElementById('mobBtn').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
+
+(function initCatDrawer() {
+    const drawer = document.getElementById('catDrawer');
+    const overlay = document.getElementById('drawerOverlay');
+    if (!drawer || !overlay) return;
+
+    function openDrawer() {
+        drawer.hidden = false;
+        overlay.hidden = false;
+        updateNavHighlight();
+    }
+    function closeDrawer() {
+        drawer.hidden = true;
+        overlay.hidden = true;
+    }
+
+    document.getElementById('catDrawerBtn').addEventListener('click', openDrawer);
+    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !drawer.hidden) closeDrawer();
+    });
+
+    // 抽屉列表在 applyCategories 填充；选择后关闭抽屉
+    drawer.addEventListener('click', e => {
+        const item = e.target.closest('.drawer-item'); if (!item) return;
+        if (item.dataset.cat !== undefined) selectCategory(item.dataset.cat);
+        else if (item.dataset.view) selectView(item.dataset.view);
+        closeDrawer();
+    });
+})();
 
 // ═══════════════════════════════════════════
 // REVEAL
@@ -1074,14 +1114,16 @@ function initReveal() {
 }
 
 // ═══════════════════════════════════════════
-// WEATHER — 用户主动点击才请求定位与天气（服务端代理 /api/weather）
+// WEATHER — 顶栏紧凑入口：点击定位并获取（服务端代理 /api/weather），
+// 再次点击展开/收起详情浮层
 // ═══════════════════════════════════════════
 (function initWeather() {
     const widget = document.getElementById('weatherWidget');
     if (!widget) return;
     const btn = document.getElementById('weatherBtn');
-    const content = document.getElementById('weatherContent');
-    const msg = document.getElementById('weatherMsg');
+    const pop = document.getElementById('weatherContent');
+    let loaded = false;
+    let loading = false;
 
     // 和风天气图标代码 → emoji（只取前两位大类，避免引用第三方图标资源）
     function iconEmoji(code) {
@@ -1097,36 +1139,62 @@ function initReveal() {
     }
 
     function showMsg(text, canRetry) {
-        content.hidden = true;
-        msg.hidden = false;
+        pop.textContent = '';
+        const msg = document.createElement('div');
+        msg.className = 'weather-loading';
         msg.textContent = text;
-        btn.hidden = !canRetry;
-        if (canRetry) btn.textContent = '重试';
+        pop.appendChild(msg);
+        if (canRetry) {
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'note-btn';
+            retry.textContent = '重试';
+            retry.addEventListener('click', () => { pop.hidden = true; requestWeather(); });
+            pop.appendChild(retry);
+        }
     }
 
     function renderWeather(d) {
-        msg.hidden = true;
-        btn.hidden = true;
-        content.hidden = false;
-        const cityEl = document.getElementById('weatherCity');
+        pop.textContent = '';
         if (d.city) {
-            cityEl.hidden = false;
-            cityEl.textContent = '📍 ' + d.city;
-        } else {
-            cityEl.hidden = true;
-            cityEl.textContent = '';
+            const city = document.createElement('div');
+            city.className = 'weather-city';
+            city.textContent = '📍 ' + d.city;
+            pop.appendChild(city);
         }
-        document.getElementById('weatherIcon').textContent = iconEmoji(d.icon);
-        document.getElementById('weatherTemp').textContent = d.temp + '°';
-        document.getElementById('weatherDesc').textContent = d.text + ' · 体感 ' + d.feelsLike + '°';
-        document.getElementById('weatherHumidity').textContent = '💧 湿度 ' + d.humidity + '%';
-        document.getElementById('weatherWind').textContent = '🌬️ ' + d.windDir + ' ' + d.windScale + '级';
+        const main = document.createElement('div');
+        main.className = 'weather-main';
+        const icon = document.createElement('span');
+        icon.className = 'weather-icon';
+        icon.textContent = iconEmoji(d.icon);
+        const temp = document.createElement('span');
+        temp.className = 'weather-temp';
+        temp.textContent = d.temp + '°';
+        main.append(icon, temp);
+        pop.appendChild(main);
+        const desc = document.createElement('div');
+        desc.className = 'weather-desc';
+        desc.textContent = d.text + ' · 体感 ' + d.feelsLike + '°';
+        pop.appendChild(desc);
+        const details = document.createElement('div');
+        details.className = 'weather-details';
+        const humidity = document.createElement('span');
+        humidity.textContent = '💧 湿度 ' + d.humidity + '%';
+        const wind = document.createElement('span');
+        wind.textContent = '🌬️ ' + d.windDir + ' ' + d.windScale + '级';
+        details.append(humidity, wind);
+        pop.appendChild(details);
+
+        // 顶栏按钮紧凑显示：图标 + 温度（+城市）
+        btn.textContent = `${iconEmoji(d.icon)} ${d.temp}°${d.city ? ' ' + d.city : ''}`;
+        btn.title = `${d.text} · 体感 ${d.feelsLike}°`;
+        btn.classList.add('fetched');
+        loaded = true;
     }
 
     function fetchWeather(lat, lon) {
-        msg.hidden = false;
-        msg.textContent = '加载天气中...';
-        btn.hidden = true;
+        showMsg('加载天气中...', false);
+        pop.hidden = false;
         fetch('/api/weather', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1134,48 +1202,44 @@ function initReveal() {
         }).then(res => {
             if (res.ok) return res.json().then(renderWeather);
             if (res.status === 404 || res.status === 503) {
-                // 天气功能被关闭或未配置：隐藏组件
+                // 天气功能被关闭或未配置：隐藏入口
                 widget.classList.remove('show');
+                pop.hidden = true;
                 return;
             }
             // 502 / 其他错误：允许重试
             showMsg('天气暂不可用', true);
         }).catch(() => {
             showMsg('天气暂不可用', true);
+        }).finally(() => {
+            loading = false;
         });
     }
 
-    btn.addEventListener('click', () => {
+    function requestWeather() {
+        if (loading) return;
         if (!navigator.geolocation) {
+            pop.hidden = false;
             showMsg('定位被拒绝', false);
             return;
         }
-        msg.hidden = false;
-        msg.textContent = '定位中...';
-        btn.hidden = true;
+        loading = true;
+        pop.hidden = false;
+        showMsg('定位中...', false);
         navigator.geolocation.getCurrentPosition(
             pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
-            () => showMsg('定位被拒绝', false), // 用户拒绝：静态提示，不重试、不回退 IP 定位
+            () => { loading = false; pop.hidden = false; showMsg('定位被拒绝', false); },
             { timeout: 8000, maximumAge: 300000 }
         );
-    });
-})();
-
-// ═══════════════════════════════════════════
-// HITOKOTO
-// ═══════════════════════════════════════════
-(async () => {
-    const el = document.getElementById('hitokoto');
-    try {
-        const r = await fetch('https://v1.hitokoto.cn/');
-        const d = await r.json();
-        el.textContent = `"${d.hitokoto}" `;
-        const cite = document.createElement('cite');
-        cite.textContent = `— ${d.from || '未知'}`;
-        el.appendChild(cite);
-    } catch {
-        el.textContent = '"连接每一个节点"';
     }
+
+    btn.addEventListener('click', () => {
+        if (!loaded && !loading) { requestWeather(); return; }
+        pop.hidden = !pop.hidden;
+    });
+    document.addEventListener('click', e => {
+        if (!widget.contains(e.target) && !pop.hidden) pop.hidden = true;
+    });
 })();
 
 // ═══════════════════════════════════════════
@@ -1239,30 +1303,102 @@ function fetchJSON(url) {
     });
 }
 
+// 分类行桌面溢出：放不下的分类收进「更多」菜单（≤768px 由抽屉接管）
+function layoutCatPills() {
+    const pillsEl = document.getElementById('catPills');
+    const moreEl = document.getElementById('catMore');
+    const menuEl = document.getElementById('catMoreMenu');
+    if (!pillsEl || !moreEl || !menuEl) return;
+    if (window.innerWidth <= 768) { moreEl.hidden = true; return; }
+    // 重置：菜单里的 pill 先全部放回
+    while (menuEl.firstChild) pillsEl.appendChild(menuEl.firstChild);
+    moreEl.hidden = true;
+    const gap = 6;
+    const pillsWidth = () => [...pillsEl.children].reduce((s, b) => s + b.offsetWidth + gap, 0);
+    const fitsWithMore = () => pillsWidth() + moreEl.offsetWidth + gap <= pillsEl.clientWidth + 1;
+    if (pillsWidth() <= pillsEl.clientWidth + 1) { syncMoreBtnLabel(); return; }
+    moreEl.hidden = false;
+    // 从末尾往前（跳过第一个「全部」）搬入菜单，直到放得下
+    let i = pillsEl.children.length - 1;
+    while (i > 0 && !fitsWithMore()) {
+        menuEl.prepend(pillsEl.children[i]);
+        i--;
+    }
+    syncMoreBtnLabel();
+}
+
+function buildCatPill(id, icon, label) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cat-pill';
+    btn.dataset.cat = id;
+    btn.textContent = `${icon || '📁'} ${label}`;
+    return btn;
+}
+
+function buildDrawerItem(kind, id, label) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'drawer-item';
+    if (kind === 'cat') btn.dataset.cat = id;
+    else btn.dataset.view = id;
+    btn.textContent = label;
+    return btn;
+}
+
 function applyCategories(apiCats) {
     Object.keys(C).forEach(k => delete C[k]);
-    apiCats.filter(c => c.is_active).forEach(c => {
+    const active = apiCats.filter(c => c.is_active);
+    active.forEach(c => {
         C[c.id] = { i: c.icon || '📁', l: c.name };
     });
 
-    const bar = document.getElementById('catGroup');
-    bar.textContent = '';
+    // 首屏默认分类：推荐优先，其次第一个有效分类
+    if (!initialCatResolved) {
+        curC = defaultCategory();
+        initialCatResolved = true;
+    } else if (curC !== 'all' && !C[curC]) {
+        // 重载后原分类被停用/删除：回落到默认分类
+        curC = defaultCategory();
+    }
+
+    const pills = document.getElementById('catPills');
+    pills.textContent = '';
     const allBtn = document.createElement('button');
-    allBtn.className = 'cat-pill' + (curC === 'all' ? ' on' : '');
+    allBtn.type = 'button';
+    allBtn.className = 'cat-pill';
     allBtn.dataset.cat = 'all';
     allBtn.textContent = '全部';
-    bar.appendChild(allBtn);
-    apiCats.filter(c => c.is_active).forEach(c => {
-        const btn = document.createElement('button');
-        btn.className = 'cat-pill' + (curC === c.id ? ' on' : '');
-        btn.dataset.cat = c.id;
-        btn.textContent = `${c.icon || '📁'} ${c.name}`;
-        bar.appendChild(btn);
-    });
+    pills.appendChild(allBtn);
+    active.forEach(c => pills.appendChild(buildCatPill(c.id, c.icon, c.name)));
+
+    // 移动端抽屉列表
+    const drawerCats = document.getElementById('drawerCats');
+    const drawerModes = document.getElementById('drawerModes');
+    drawerCats.textContent = '';
+    drawerCats.appendChild(buildDrawerItem('cat', 'all', '全部'));
+    active.forEach(c => drawerCats.appendChild(buildDrawerItem('cat', c.id, `${c.icon || '📁'} ${c.name}`)));
+    drawerModes.textContent = '';
+    Object.entries(VIEW_META).forEach(([id, m]) => drawerModes.appendChild(buildDrawerItem('view', id, `${m.i} ${m.l}`)));
+    const trend = document.createElement('button');
+    trend.type = 'button';
+    trend.className = 'drawer-item';
+    trend.dataset.view = 'trending';
+    trend.textContent = '📈 热榜';
+    drawerModes.appendChild(trend);
+
+    layoutCatPills();
+    updateNavHighlight();
 }
 
+let catLayoutRaf = null;
+window.addEventListener('resize', () => {
+    if (catLayoutRaf) cancelAnimationFrame(catLayoutRaf);
+    catLayoutRaf = requestAnimationFrame(layoutCatPills);
+});
+
 function showCatBarError() {
-    const bar = document.getElementById('catGroup');
+    const bar = document.getElementById('catPills');
     bar.textContent = '';
     const msg = document.createElement('span');
     msg.className = 'bar-error';
@@ -1334,17 +1470,4 @@ async function loadData() {
     } catch (err) {
         // Pages dropdown stays hidden
     }
-
-    // Auto-hide category bar scrollbar until scrolling or hovering
-    function initCatBarScroll() {
-        const bar = document.getElementById('catBar');
-        if (!bar) return;
-        let scrollTimeout;
-        bar.addEventListener('scroll', () => {
-            bar.classList.add('show-scroll');
-            clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(() => bar.classList.remove('show-scroll'), 1000);
-        });
-    }
-    initCatBarScroll();
 })();

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test test/",
+    "test": "node --test",
     "test:contract": "node --test test/contract.test.js",
     "deploy:cf": "node deploy.js",
     "deploy": "node deploy.js",
