@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════
-// DogNav 首页脚本（Kaka 式轻量首页）
-// 站点设置（favicon、标题、主题色、页脚、投稿/天气开关）由
-// /js/settings-loader.js 统一加载；本文件含天气组件交互逻辑。
-// 视图层级：分类行（全部+分类+更多/抽屉）与内容模式行（精选/热门/
-// 最新/收藏/最近/热榜）互斥；默认只展示「推荐」分类；热榜仅在进入
-// 热榜模式后加载。
+// DogNav 首页脚本（个人工作台 Start Page）
+// 站点设置（favicon、标题、主题色、页脚、投稿开关）由
+// /js/settings-loader.js 统一加载。
+// 两个视图：home = 工作台首页（问候/时钟 → 搜索 → 常用 Dock →
+// 轻量状态 → 分类工作流区）；all = 全部应用（分类 + 精选/收藏/最近/
+// 热门/最新/热榜，由右下角「全部应用」进入）。搜索、收藏、最近访问、
+// 点击统计、热榜懒加载等业务逻辑两端视图共用。
 // ═══════════════════════════════════════════
 
 // ═══════════════════════════════════════════
@@ -13,17 +14,6 @@
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');
 if (savedTheme) H.setAttribute('data-theme', savedTheme);
-
-document.getElementById('themeBtn').addEventListener('click', () => {
-    const next = H.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    // Briefly disable transitions to avoid jank from 150+ cards
-    H.classList.add('notransition');
-    H.setAttribute('data-theme', next);
-    localStorage.setItem('dognav-theme', next);
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => H.classList.remove('notransition'));
-    });
-});
 
 // ═══════════════════════════════════════════
 // DATA — 站点与分类只来自后端 API，无硬编码回退
@@ -41,15 +31,17 @@ const E = {
 
 const C = {}; // GET /api/categories → { id: { i, l } }
 
+// 顺序即界面优先级：个人工作台视角下收藏/最近高于热门/最新
 const VIEW_META = {
     featured: { i: '⭐', l: '编辑精选' },
-    hot: { i: '🔥', l: '热门' },
-    new: { i: '🆕', l: '最近新增' },
     fav: { i: '❤️', l: '我的收藏' },
     recent: { i: '🕘', l: '最近访问' },
+    hot: { i: '🔥', l: '热门' },
+    new: { i: '🆕', l: '最近新增' },
 };
 
 let curE = 'baidu', curC = 'all', curView = 'all', curTag = null;
+let pageView = 'home'; // 'home' 工作台首页 | 'all' 全部应用
 let sitesLoaded = false; // /api/sites 成功返回后才为 true
 let initialCatResolved = false; // 首屏默认分类（推荐 → 第一个有效分类）只解析一次
 
@@ -81,6 +73,25 @@ function addRecent(id) {
     recent.unshift({ id, t: Date.now() });
     if (recent.length > 20) recent.length = 20;
     localStorage.setItem('dognav-recent', JSON.stringify(recent));
+}
+
+// ── 我的常用（首页 Dock 高频入口）──
+// null 表示首次访问尚未初始化（区别于用户主动清空后的 []，后者保持空不再预填）
+const PINNED_MAX = 12;
+let pinned = loadJSON('dognav-pinned', null);
+
+function savePinned() { localStorage.setItem('dognav-pinned', JSON.stringify(pinned)); }
+function isPinned(id) { return Array.isArray(pinned) && pinned.some(p => String(p) === String(id)); }
+function togglePin(id) {
+    if (!Array.isArray(pinned)) pinned = [];
+    if (isPinned(id)) {
+        pinned = pinned.filter(p => String(p) !== String(id));
+    } else {
+        if (pinned.length >= PINNED_MAX) { toast(`常用入口最多固定 ${PINNED_MAX} 个站点`); return; }
+        pinned.push(id);
+    }
+    savePinned();
+    render(); // home 视图刷新 Dock；all 视图刷新卡片图钉状态
 }
 
 // ═══════════════════════════════════════════
@@ -157,13 +168,38 @@ function buildTagChip(tag) {
     return chip;
 }
 
+// 站点图标：URL 图标走 <img>（加载失败回退到首字母色块），emoji/字母等文本图标直接渲染。
+// 只有明确是 URL（http(s)://、站内绝对路径、data:image/）的图标才走 <img>——否则会被
+// sanitizeUrl 解析成同源相对地址，每张卡片白走一次 404 再落回兜底。
+function buildFavIcon(s, size = 36) {
+    const icon = s.icon || '🌐';
+    const name = s.name || '';
+    const isUrlIcon = typeof icon === 'string' && /^(https?:\/\/|\/|data:image\/)/i.test(icon);
+    const iconUrl = isUrlIcon
+        ? (sanitizeUrl(icon) || (icon.startsWith('data:image/') ? icon : null))
+        : null;
+    const el = document.createElement('div');
+    if (iconUrl) {
+        const img = document.createElement('img');
+        img.src = iconUrl;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.style.cssText = `width:${size}px;height:${size}px;border-radius:${Math.max(4, Math.round(size * 0.28))}px;object-fit:cover`;
+        img.onerror = () => { img.onerror = null; img.src = iconFallbackUri(name); };
+        el.appendChild(img);
+    } else {
+        // 文本图标（emoji / 字母等），isUrlIcon 已排除 URL 形态
+        el.textContent = icon || '🌐';
+    }
+    return el;
+}
+
 function buildCard(s) {
     const name = s.name;
     const url = sanitizeUrl(s.url);
     // 名称缺失或 URL 非法（非 http/https）时不渲染该卡片
     if (!name || !url) return null;
     const desc = s.description || '';
-    const icon = s.icon || '🌐';
     const id = s.id || '';
 
     const a = document.createElement('a');
@@ -180,28 +216,8 @@ function buildCard(s) {
 
     const row = document.createElement('div');
     row.className = 'card-row';
-    const fav = document.createElement('div');
+    const fav = buildFavIcon(s);
     fav.className = 'card-fav';
-
-    // 只有明确是 URL（http(s)://、站内绝对路径、data:image/）的图标才走 <img>；
-    // emoji、字母等文本图标直接按文本渲染——否则会被 sanitizeUrl 解析成同源
-    // 相对地址，每张卡片白走一次 404 再落回兜底
-    const isUrlIcon = typeof icon === 'string' && /^(https?:\/\/|\/|data:image\/)/i.test(icon);
-    const iconUrl = isUrlIcon
-        ? (sanitizeUrl(icon) || (icon.startsWith('data:image/') ? icon : null))
-        : null;
-    if (iconUrl) {
-        const img = document.createElement('img');
-        img.src = iconUrl;
-        img.alt = '';
-        img.loading = 'lazy';
-        img.style.cssText = 'width:36px;height:36px;border-radius:10px;object-fit:cover';
-        img.onerror = () => { img.onerror = null; img.src = iconFallbackUri(name); };
-        fav.appendChild(img);
-    } else {
-        // 文本图标（emoji / 字母等），isUrlIcon 已排除 URL 形态
-        fav.textContent = icon || '🌐';
-    }
 
     const nameEl = document.createElement('div');
     nameEl.className = 'card-name';
@@ -226,6 +242,25 @@ function buildCard(s) {
     }
 
     if (id) {
+        const pin = document.createElement('button');
+        pin.type = 'button';
+        pin.className = 'card-pin' + (isPinned(id) ? ' on' : '');
+        pin.textContent = '📌';
+        pin.title = isPinned(id) ? '从我的常用移除' : '固定到我的常用';
+        pin.setAttribute('aria-pressed', isPinned(id) ? 'true' : 'false');
+        pin.setAttribute('aria-label', pin.title);
+        pin.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            togglePin(id);
+            const on = isPinned(id);
+            pin.classList.toggle('on', on);
+            pin.title = on ? '从我的常用移除' : '固定到我的常用';
+            pin.setAttribute('aria-pressed', on ? 'true' : 'false');
+            pin.setAttribute('aria-label', pin.title);
+        });
+        a.appendChild(pin);
+
         const star = document.createElement('button');
         star.type = 'button';
         star.className = 'card-star' + (isFav(id) ? ' on' : '');
@@ -448,8 +483,225 @@ function buildCardGrid(items) {
     return grid;
 }
 
+// ═══════════════════════════════════════════
+// HOME — 工作台首页视图（Dock / 状态卡 / 分类区）
+// ═══════════════════════════════════════════
+function pinnedSites() {
+    const byId = new Map(S.map(s => [String(s.id), s]));
+    return (Array.isArray(pinned) ? pinned : [])
+        .map(id => byId.get(String(id)))
+        .filter(s => s && s.status === 'active');
+}
+
+// Dock：8~10 个高频入口，图标为视觉主体；固定/移除在「全部应用」卡片 📌 上操作
+function renderDock() {
+    const dock = document.getElementById('dockBar');
+    const hint = document.getElementById('dockHint');
+    if (!dock) return;
+    dock.textContent = '';
+    const items = pinnedSites().slice(0, 10);
+    if (hint) hint.hidden = items.length > 0;
+    items.forEach(s => {
+        const url = sanitizeUrl(s.url);
+        if (!url) return;
+        const a = document.createElement('a');
+        a.className = 'dock-item';
+        a.href = url;
+        a.target = '_blank';
+        a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
+        a.title = s.name;
+        const ico = buildFavIcon(s, 32);
+        ico.className = 'dock-ic';
+        const name = document.createElement('span');
+        name.className = 'dock-name';
+        name.textContent = s.name;
+        a.append(ico, name);
+        a.addEventListener('click', () => {
+            if (s.id) {
+                addRecent(s.id);
+                trackClick(String(s.id));
+            }
+        });
+        dock.appendChild(a);
+    });
+}
+
+// 状态区：最近使用 4 个（内联横排）/ 收藏计数 / 服务状态聚合；稍后阅读自动检测 Karakeep
+function renderStatusRow() {
+    const byId = new Map(S.map(s => [String(s.id), s]));
+
+    const recentBody = document.getElementById('stRecentBody');
+    if (recentBody) {
+        recentBody.textContent = '';
+        const items = recent.map(r => byId.get(String(r.id)))
+            .filter(s => s && s.status === 'active')
+            .slice(0, 4);
+        if (items.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'st-empty';
+            empty.textContent = '点击任意站点后出现在这里';
+            recentBody.appendChild(empty);
+        }
+        items.forEach(s => {
+            const url = sanitizeUrl(s.url);
+            if (!url) return;
+            const a = document.createElement('a');
+            a.className = 'st-recent-item';
+            a.href = url;
+            a.target = '_blank';
+            a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
+            a.title = s.name;
+            const ic = buildFavIcon(s, 18);
+            ic.className = 'st-recent-ic';
+            const nm = document.createElement('span');
+            nm.className = 'st-recent-name';
+            nm.textContent = s.name;
+            a.append(ic, nm);
+            a.addEventListener('click', () => {
+                if (s.id) {
+                    addRecent(s.id);
+                    trackClick(String(s.id));
+                }
+            });
+            recentBody.appendChild(a);
+        });
+    }
+
+    // 稍后阅读：CMS 收录了 Karakeep 才显示该入口（无独立数据源，不伪造计数）
+    const read = S.find(s => /karakeep/i.test(`${s.name || ''} ${s.url || ''} ${s.keywords || ''}`));
+    const stRead = document.getElementById('stRead');
+    if (stRead) {
+        stRead.hidden = !read;
+        stRead.onclick = null;
+        if (read) {
+            const url = sanitizeUrl(read.url);
+            if (url) stRead.onclick = () => window.open(url, '_blank', 'noopener');
+        }
+    }
+
+    const favNum = document.getElementById('stFavNum');
+    if (favNum) favNum.textContent = String(favs.length);
+
+    const healthBody = document.getElementById('stHealthBody');
+    if (healthBody) {
+        healthBody.textContent = '';
+        const monitored = S.filter(s => ['online', 'slow', 'offline'].includes(s.last_status));
+        const line = document.createElement('span');
+        line.className = 'st-health-line';
+        const dot = document.createElement('span');
+        dot.className = 'st-dot';
+        const text = document.createElement('span');
+        if (monitored.length === 0) {
+            dot.classList.add('st-none');
+            text.textContent = '未启用检测';
+        } else {
+            const ok = monitored.filter(s => s.last_status !== 'offline');
+            const anyOffline = ok.length < monitored.length;
+            dot.classList.add(anyOffline ? 'st-offline' : 'st-online');
+            text.textContent = `${ok.length}/${monitored.length} 正常`;
+            text.classList.toggle('st-health-ok', !anyOffline);
+            if (anyOffline) {
+                const bad = monitored.filter(s => s.last_status === 'offline').map(s => s.name).join('、');
+                line.title = `离线：${bad}`;
+            }
+        }
+        line.append(dot, text);
+        healthBody.appendChild(line);
+    }
+}
+
+// 分类工作流区：左侧分类标题纵向居中，右侧一行 5 个紧凑站点 + › 查看全部
+const HOME_CAT_MAX = 5;
+function renderHomeCats() {
+    const box = document.getElementById('catSections');
+    if (!box) return;
+    box.textContent = '';
+    Object.entries(C).forEach(([id, c]) => {
+        const all = S.filter(s => s.category === id);
+        if (all.length === 0) return;
+        const items = all.slice(0, HOME_CAT_MAX);
+        const sec = document.createElement('section');
+        sec.className = 'wf-sec';
+        const head = document.createElement('div');
+        head.className = 'wf-head';
+        const title = document.createElement('h2');
+        title.className = 'wf-title';
+        title.textContent = c.l;
+        head.appendChild(title);
+        const grid = document.createElement('div');
+        grid.className = 'wf-grid';
+        items.forEach(s => {
+            const url = sanitizeUrl(s.url);
+            if (!url) return;
+            const a = document.createElement('a');
+            a.className = 'wf-item';
+            a.href = url;
+            a.target = '_blank';
+            a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
+            a.title = s.name;
+            const ic = buildFavIcon(s, 24);
+            ic.className = 'wf-ic';
+            const nm = document.createElement('span');
+            nm.className = 'wf-item-name';
+            nm.textContent = s.name;
+            a.append(ic, nm);
+            a.addEventListener('click', () => {
+                if (s.id) {
+                    addRecent(s.id);
+                    trackClick(String(s.id));
+                }
+            });
+            grid.appendChild(a);
+        });
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'wf-more';
+        more.textContent = '›';
+        more.title = `查看全部分类「${c.l}」（共 ${all.length} 个）`;
+        more.setAttribute('aria-label', more.title);
+        more.addEventListener('click', () => openAllView(id));
+        sec.append(head, grid, more);
+        box.appendChild(sec);
+    });
+}
+
+function renderHome() {
+    renderDock();
+    renderStatusRow();
+    renderHomeCats();
+}
+
+// 视图切换：home（工作台）↔ all（全部应用，承载分类/精选/热门/最新/收藏/最近/热榜）
+function openAllView(target) {
+    pageView = 'all';
+    document.getElementById('homeView').hidden = true;
+    document.getElementById('allView').hidden = false;
+    const btn = document.getElementById('btnAllApps');
+    if (btn) btn.textContent = '返回首页';
+    if (target && VIEW_META[target]) {
+        selectView(target);
+    } else if (typeof target === 'string' && target && C[target]) {
+        selectCategory(target);
+    } else {
+        render();
+    }
+    window.scrollTo({ top: 0 });
+    layoutCatPills();
+}
+
+function goHome() {
+    pageView = 'home';
+    document.getElementById('allView').hidden = true;
+    document.getElementById('homeView').hidden = false;
+    const btn = document.getElementById('btnAllApps');
+    if (btn) btn.textContent = '全部应用';
+    render();
+    window.scrollTo({ top: 0 });
+}
+
 function render() {
     if (!sitesLoaded) return; // 数据未就绪：保留加载/错误态，不覆盖
+    if (pageView === 'home') { renderHome(); return; }
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
@@ -677,10 +929,32 @@ function tryUrl(q) {
     return null;
 }
 
-function siteMatchesQuery(s, ql) {
-    const fields = [s.name, s.description, s.category, (C[s.category] || {}).l];
+// 子序列模糊匹配：ql 的每个字符按顺序出现在 text 中（容忍 gihub→github 这类输入）
+function isSubsequence(ql, text) {
+    if (!ql) return false;
+    let i = 0;
+    for (const ch of text) {
+        if (ch === ql[i]) i++;
+        if (i >= ql.length) return true;
+    }
+    return false;
+}
+
+// 站点搜索打分（0 = 不匹配）：name 前缀 > name 子串 > 别名/URL/描述/标签/分类 子串
+// > 别名逐段模糊 > name 模糊。keywords 为后台维护的逗号分隔搜索别名（如 gpt,chatgpt）
+function scoreSite(s, ql) {
+    const name = (s.name || '').toLowerCase();
+    if (name.startsWith(ql)) return 100;
+    if (name.includes(ql)) return 80;
+    const fields = [s.keywords, s.url, s.description, (C[s.category] || {}).l, s.category];
     if (Array.isArray(s.tags)) s.tags.forEach(t => fields.push(t.name));
-    return fields.some(f => typeof f === 'string' && f.toLowerCase().includes(ql));
+    for (const f of fields) {
+        if (typeof f === 'string' && f.toLowerCase().includes(ql)) return 60;
+    }
+    if (typeof s.keywords === 'string' &&
+        s.keywords.toLowerCase().split(/[,，、\s]+/).some(k => k && isSubsequence(ql, k))) return 40;
+    if (name && isSubsequence(ql, name)) return 20;
+    return 0;
 }
 
 // 高亮：textContent 切分 + <mark>，不经过 innerHTML
@@ -769,7 +1043,12 @@ function updateSearchPanel() {
         searchPanel.appendChild(opt);
     }
 
-    const matches = S.filter(s => siteMatchesQuery(s, ql)).slice(0, 10);
+    const matches = S.map(s => [scoreSite(s, ql), s])
+        .filter(([score]) => score > 0)
+        // 同分时：站名更短（更精确）优先，其次累计点击更高优先
+        .sort((x, y) => y[0] - x[0] || (x[1].name || '').length - (y[1].name || '').length || (y[1].click_count || 0) - (x[1].click_count || 0))
+        .slice(0, 10)
+        .map(([, s]) => s);
     matches.forEach(s => {
         const opt = buildSrOption(`sr-opt-${srItems.length}`);
         opt.appendChild(buildStatusDot(s));
@@ -889,9 +1168,9 @@ document.addEventListener('click', e => {
     if (!searchBox.contains(e.target)) closePanel();
 });
 
-// 引擎选择器：内嵌输入框左侧的自定义下拉
+// 引擎选择器：点击搜索框左侧放大镜打开（视觉上保持极简，不显示当前引擎文字）
 (function initEngineSelect() {
-    const currentBtn = document.getElementById('engCurrent');
+    const icoBtn = document.getElementById('searchIco');
     const menu = document.getElementById('engMenu');
 
     function renderMenu() {
@@ -911,25 +1190,25 @@ document.addEventListener('click', e => {
     function openMenu() {
         renderMenu();
         menu.hidden = false;
-        currentBtn.setAttribute('aria-expanded', 'true');
+        icoBtn.setAttribute('aria-expanded', 'true');
     }
     function closeMenu() {
         menu.hidden = true;
-        currentBtn.setAttribute('aria-expanded', 'false');
+        icoBtn.setAttribute('aria-expanded', 'false');
     }
 
-    currentBtn.addEventListener('click', () => {
+    icoBtn.addEventListener('click', () => {
         if (menu.hidden) openMenu(); else closeMenu();
     });
     menu.addEventListener('click', e => {
         const opt = e.target.closest('.eng-option'); if (!opt) return;
         curE = opt.dataset.engine;
-        currentBtn.textContent = E[curE].n;
+        icoBtn.title = `搜索引擎：${E[curE].n}`;
         closeMenu();
         searchInput.focus();
     });
     document.addEventListener('click', e => {
-        if (!e.target.closest('.eng-select')) closeMenu();
+        if (!e.target.closest('.search-wrap')) closeMenu();
     });
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') closeMenu();
@@ -1071,10 +1350,8 @@ function buildTagNav() {
 }
 
 // ═══════════════════════════════════════════
-// MOBILE NAV + CATEGORY DRAWER
+// CATEGORY DRAWER（移动端分类/模式抽屉；全部应用视图内使用）
 // ═══════════════════════════════════════════
-document.getElementById('mobBtn').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
-
 (function initCatDrawer() {
     const drawer = document.getElementById('catDrawer');
     const overlay = document.getElementById('drawerOverlay');
@@ -1114,135 +1391,6 @@ function initReveal() {
 }
 
 // ═══════════════════════════════════════════
-// WEATHER — 顶栏紧凑入口：点击定位并获取（服务端代理 /api/weather），
-// 再次点击展开/收起详情浮层
-// ═══════════════════════════════════════════
-(function initWeather() {
-    const widget = document.getElementById('weatherWidget');
-    if (!widget) return;
-    const btn = document.getElementById('weatherBtn');
-    const pop = document.getElementById('weatherContent');
-    let loaded = false;
-    let loading = false;
-
-    // 和风天气图标代码 → emoji（只取前两位大类，避免引用第三方图标资源）
-    function iconEmoji(code) {
-        const n = parseInt(code, 10);
-        if (n === 100) return '☀️';
-        if (n === 101 || n === 102 || n === 103) return '⛅';
-        if (n === 104) return '☁️';
-        if (n >= 300 && n < 400) return '🌧️';
-        if (n >= 400 && n < 500) return '🌨️';
-        if (n >= 500 && n < 600) return '🌫️';
-        if (n >= 600 && n < 700) return '🌪️';
-        return '🌡️';
-    }
-
-    function showMsg(text, canRetry) {
-        pop.textContent = '';
-        const msg = document.createElement('div');
-        msg.className = 'weather-loading';
-        msg.textContent = text;
-        pop.appendChild(msg);
-        if (canRetry) {
-            const retry = document.createElement('button');
-            retry.type = 'button';
-            retry.className = 'note-btn';
-            retry.textContent = '重试';
-            retry.addEventListener('click', () => { pop.hidden = true; requestWeather(); });
-            pop.appendChild(retry);
-        }
-    }
-
-    function renderWeather(d) {
-        pop.textContent = '';
-        if (d.city) {
-            const city = document.createElement('div');
-            city.className = 'weather-city';
-            city.textContent = '📍 ' + d.city;
-            pop.appendChild(city);
-        }
-        const main = document.createElement('div');
-        main.className = 'weather-main';
-        const icon = document.createElement('span');
-        icon.className = 'weather-icon';
-        icon.textContent = iconEmoji(d.icon);
-        const temp = document.createElement('span');
-        temp.className = 'weather-temp';
-        temp.textContent = d.temp + '°';
-        main.append(icon, temp);
-        pop.appendChild(main);
-        const desc = document.createElement('div');
-        desc.className = 'weather-desc';
-        desc.textContent = d.text + ' · 体感 ' + d.feelsLike + '°';
-        pop.appendChild(desc);
-        const details = document.createElement('div');
-        details.className = 'weather-details';
-        const humidity = document.createElement('span');
-        humidity.textContent = '💧 湿度 ' + d.humidity + '%';
-        const wind = document.createElement('span');
-        wind.textContent = '🌬️ ' + d.windDir + ' ' + d.windScale + '级';
-        details.append(humidity, wind);
-        pop.appendChild(details);
-
-        // 顶栏按钮紧凑显示：图标 + 温度（+城市）
-        btn.textContent = `${iconEmoji(d.icon)} ${d.temp}°${d.city ? ' ' + d.city : ''}`;
-        btn.title = `${d.text} · 体感 ${d.feelsLike}°`;
-        btn.classList.add('fetched');
-        loaded = true;
-    }
-
-    function fetchWeather(lat, lon) {
-        showMsg('加载天气中...', false);
-        pop.hidden = false;
-        fetch('/api/weather', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat, lon })
-        }).then(res => {
-            if (res.ok) return res.json().then(renderWeather);
-            if (res.status === 404 || res.status === 503) {
-                // 天气功能被关闭或未配置：隐藏入口
-                widget.classList.remove('show');
-                pop.hidden = true;
-                return;
-            }
-            // 502 / 其他错误：允许重试
-            showMsg('天气暂不可用', true);
-        }).catch(() => {
-            showMsg('天气暂不可用', true);
-        }).finally(() => {
-            loading = false;
-        });
-    }
-
-    function requestWeather() {
-        if (loading) return;
-        if (!navigator.geolocation) {
-            pop.hidden = false;
-            showMsg('定位被拒绝', false);
-            return;
-        }
-        loading = true;
-        pop.hidden = false;
-        showMsg('定位中...', false);
-        navigator.geolocation.getCurrentPosition(
-            pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
-            () => { loading = false; pop.hidden = false; showMsg('定位被拒绝', false); },
-            { timeout: 8000, maximumAge: 300000 }
-        );
-    }
-
-    btn.addEventListener('click', () => {
-        if (!loaded && !loading) { requestWeather(); return; }
-        pop.hidden = !pop.hidden;
-    });
-    document.addEventListener('click', e => {
-        if (!widget.contains(e.target) && !pop.hidden) pop.hidden = true;
-    });
-})();
-
-// ═══════════════════════════════════════════
 // BACK TO TOP
 // ═══════════════════════════════════════════
 const btt = document.getElementById('btt');
@@ -1259,17 +1407,109 @@ function trackClick(id) {
 }
 
 // ═══════════════════════════════════════════
-// CLEAR LOCAL DATA — 清除收藏与最近访问（保留主题）
+// CLEAR LOCAL DATA — 清除收藏与最近访问（保留主题与常用入口）
 // ═══════════════════════════════════════════
-document.getElementById('clearLocalData').addEventListener('click', () => {
-    if (!window.confirm('确定清除本地保存的收藏与最近访问记录吗？（主题设置会保留）')) return;
+document.getElementById('setClearData').addEventListener('click', () => {
+    if (!window.confirm('确定清除本地保存的收藏与最近访问记录吗？（常用入口与主题设置会保留）')) return;
     localStorage.removeItem('dognav-favorites');
     localStorage.removeItem('dognav-recent');
     favs = [];
     recent = [];
     render();
     toast('本地数据已清除');
+    document.getElementById('setPop').hidden = true;
 });
+
+// ═══════════════════════════════════════════
+// WORKBENCH CHROME — 时钟/问候、⌘K、底部工具与设置弹层
+// ═══════════════════════════════════════════
+function tickClock() {
+    const clock = document.getElementById('clock');
+    const greet = document.getElementById('greet');
+    if (!clock && !greet) return;
+    const d = new Date();
+    if (clock) {
+        clock.textContent =
+            d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }) +
+            ' · ' +
+            d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    if (greet) {
+        const h = d.getHours();
+        greet.textContent = h < 6 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+    }
+}
+setInterval(tickClock, 20000);
+tickClock();
+
+// 按平台显示搜索快捷键提示（⌘K / Ctrl K）
+(function initSearchKbd() {
+    const kbd = document.getElementById('searchKbd');
+    if (!kbd) return;
+    const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '') ||
+        (navigator.userAgent || '').includes('Mac');
+    kbd.textContent = mac ? '⌘ K' : 'Ctrl K';
+})();
+
+// ⌘K / Ctrl K 聚焦搜索（'/' 快捷键仍可用，见 SEARCH 段）
+document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+    }
+});
+
+// 顶栏已移除：时钟为右上角浮动元素，主题切换在设置弹层内（见下方 syncThemeSeg）
+
+// 右下角底部工具：全部应用 / 最近使用 / 设置
+document.getElementById('btnAllApps').addEventListener('click', () => {
+    if (pageView === 'home') openAllView(); else goHome();
+});
+document.getElementById('btnRecentView').addEventListener('click', () => openAllView('recent'));
+
+// 状态卡点击：最近使用「全部 ›」与收藏卡进入对应全部应用视图
+document.getElementById('statusRow').addEventListener('click', e => {
+    const more = e.target.closest('[data-open]');
+    if (more) { openAllView(more.dataset.open); return; }
+    if (e.target.closest('#stFav')) openAllView('fav');
+});
+document.getElementById('stFav').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAllView('fav'); }
+});
+
+// 设置弹层：主题切换 + 清除本地数据 + 自定义页面
+const setPop = document.getElementById('setPop');
+document.getElementById('btnSettings').addEventListener('click', e => {
+    e.stopPropagation();
+    const open = setPop.hidden;
+    setPop.hidden = !open;
+    document.getElementById('btnSettings').setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('click', e => {
+    if (!setPop.hidden && !setPop.contains(e.target) &&
+        !document.getElementById('btnSettings').contains(e.target)) {
+        setPop.hidden = true;
+    }
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !setPop.hidden) setPop.hidden = true;
+});
+
+function syncThemeSeg() {
+    const cur = H.getAttribute('data-theme');
+    document.querySelectorAll('[data-set-theme]').forEach(b => {
+        b.classList.toggle('on', b.dataset.setTheme === cur);
+    });
+}
+document.querySelectorAll('[data-set-theme]').forEach(b => {
+    b.addEventListener('click', () => {
+        H.setAttribute('data-theme', b.dataset.setTheme);
+        localStorage.setItem('dognav-theme', b.dataset.setTheme);
+        syncThemeSeg();
+    });
+});
+syncThemeSeg();
 
 // ═══════════════════════════════════════════
 // LOADER
@@ -1435,6 +1675,14 @@ async function loadData() {
     S.length = 0;
     sitesR.value.filter(s => s.status === 'active').forEach(s => S.push(s));
     sitesLoaded = true;
+    // 首次访问：用累计点击 Top 8 预填「我的常用」，避免空白首屏；之后由用户自行增删
+    if (pinned === null && S.length > 0) {
+        pinned = [...S]
+            .sort((x, y) => (y.click_count || 0) - (x.click_count || 0))
+            .slice(0, 8)
+            .map(s => s.id);
+        savePinned();
+    }
     render();
 }
 
@@ -1449,25 +1697,22 @@ async function loadData() {
     }
 
     try {
-        // Fetch custom pages for navbar "更多" dropdown
+        // Fetch custom pages → 设置弹层底部链接
         const pagesRes = await fetch('/api/pages');
         if (pagesRes.ok) {
             const pages = await pagesRes.json();
             const customPages = pages.filter(p => !['about','links','contribute'].includes(p.id));
-            if (customPages.length > 0) {
-                const dropdown = document.getElementById('moreDropdown');
-                const menu = document.getElementById('moreDropdownMenu');
-                menu.textContent = '';
+            const links = document.getElementById('setLinks');
+            if (customPages.length > 0 && links) {
                 customPages.forEach(p => {
                     const link = document.createElement('a');
                     link.href = '/page.html?slug=' + encodeURIComponent(p.id);
                     link.textContent = p.title || p.id;
-                    menu.appendChild(link);
+                    links.appendChild(link);
                 });
-                dropdown.style.display = '';
             }
         }
     } catch (err) {
-        // Pages dropdown stays hidden
+        // Custom page links stay hidden
     }
 })();

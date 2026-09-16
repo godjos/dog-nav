@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -36,53 +36,63 @@
     <div class="loader-label">DogNav</div>
 </div>
 
-<nav class="navbar">
-    <div class="nav-inner">
-        <a href="index.html" class="logo">
-            <img class="logo-ico" src="/ico.ico" alt="">
-            <div class="logo-text">Dog<span>Nav</span></div>
-        </a>
-        <div class="nav-right">
-            <ul class="nav-links" id="navLinks">
-                <li><a href="index.html" class="active">首页</a></li>
-                <li><a href="links.html">友链</a></li>
-                <li><a href="about.html">关于</a></li>
-                <li><a href="contribute.html">提交</a></li>
-                <li class="nav-dropdown" id="moreDropdown" style="display:none">
-                    <a href="#">更多</a>
-                    <ul class="nav-dropdown-menu" id="moreDropdownMenu"></ul>
-                </li>
-            </ul>
-            <div class="weather-widget" id="weatherWidget">
-                <button class="weather-btn" id="weatherBtn" type="button" aria-label="获取天气">🌡️ 天气</button>
-                <div class="weather-pop" id="weatherContent" role="status" hidden></div>
-            </div>
-            <button class="theme-btn" id="themeBtn" aria-label="切换主题">
-                <i class="i-sun">☀️</i><i class="i-moon">🌙</i>
-            </button>
-            <button class="mob-btn" id="mobBtn" aria-label="菜单">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-            </button>
-        </div>
-    </div>
-</nav>
+<span class="top-clock" id="clock" aria-label="当前日期时间"></span>
 
-<header class="search-sec">
-    <div class="search-wrap">
-        <div class="eng-select">
-            <button type="button" class="eng-current" id="engCurrent" aria-haspopup="listbox" aria-expanded="false">百度</button>
+<!-- ═══ 工作台首页（默认视图） ═══ -->
+<main class="home" id="homeView">
+    <section class="hero">
+        <h1 class="greet" id="greet">晚上好</h1>
+        <p class="greet-sub">专注当下，探索更大的可能</p>
+    </section>
+
+    <header class="search-sec">
+        <div class="search-wrap">
+            <button type="button" class="search-ico" id="searchIco" aria-haspopup="listbox" aria-expanded="false" title="搜索引擎">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </button>
             <div class="eng-menu" id="engMenu" role="listbox" hidden></div>
+            <input type="text" class="search-input" id="searchInput" placeholder="搜索网站、工具，或直接输入网址…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchPanel" aria-autocomplete="list">
+            <kbd class="search-kbd" id="searchKbd" aria-hidden="true">⌘ K</kbd>
+            <button class="search-go" id="searchBtn" aria-label="搜索">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+            <div class="search-panel" id="searchPanel" role="listbox" aria-label="站内搜索结果" hidden></div>
         </div>
-        <input type="text" class="search-input" id="searchInput" placeholder="搜索站内站点或输入网址..." autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchPanel" aria-autocomplete="list">
-        <span class="search-key" aria-hidden="true">/</span>
-        <button class="search-go" id="searchBtn" aria-label="搜索">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        </button>
-        <div class="search-panel" id="searchPanel" role="listbox" aria-label="站内搜索结果" hidden></div>
-    </div>
-</header>
+    </header>
 
-<main class="panel">
+    <section class="dock-sec" aria-label="常用应用">
+        <div class="dock" id="dockBar"></div>
+        <p class="dock-hint" id="dockHint" hidden>在「全部应用」中点卡片上的 📌，把常用站点固定到这里</p>
+    </section>
+
+    <section class="status-row" id="statusRow" aria-label="工作台状态">
+        <div class="st-card" id="stRecent">
+            <div class="st-label"><span class="st-label-t">🕘 最近使用</span><button type="button" class="st-more" data-open="recent" aria-label="查看全部最近使用">›</button></div>
+            <div class="st-body st-recent-row" id="stRecentBody"></div>
+        </div>
+        <div class="st-card st-click" id="stRead" role="link" tabindex="0" aria-label="打开稍后阅读" hidden>
+            <div class="st-label"><span class="st-label-t">🔖 稍后阅读</span><span class="st-more st-more-static">›</span></div>
+            <div class="st-body"><span class="st-num" id="stReadNum">→</span></div>
+        </div>
+        <div class="st-card st-click" id="stFav" role="button" tabindex="0" aria-label="查看我的收藏">
+            <div class="st-label"><span class="st-label-t">☆ 收藏</span><button type="button" class="st-more" data-open="fav" aria-label="查看全部收藏">›</button></div>
+            <div class="st-body"><span class="st-num" id="stFavNum">0</span><span class="st-sub">个站点</span></div>
+        </div>
+        <div class="st-card st-click" id="stHealth" role="button" tabindex="0">
+            <div class="st-label"><span class="st-label-t">🩺 服务状态</span><button type="button" class="st-more" data-open="health" aria-label="查看站点健康状态">›</button></div>
+            <div class="st-body" id="stHealthBody"></div>
+        </div>
+        <div class="st-card" id="stTasks" role="status" hidden>
+            <div class="st-label"><span class="st-label-t">📋 今日事项</span><span class="st-more st-more-static">›</span></div>
+            <div class="st-body"><span class="st-num" id="stTasksNum">—</span><span class="st-sub">项</span></div>
+        </div>
+    </section>
+
+    <section class="cat-sections" id="catSections" aria-label="分类导航"></section>
+</main>
+
+<!-- ═══ 全部应用（二级浏览视图：分类 + 精选/收藏/最近/热门/最新/热榜） ═══ -->
+<main class="panel" id="allView" hidden>
     <div class="panel-head">
         <nav class="cat-nav" id="catNav" aria-label="站点分类">
             <div class="cat-pills" id="catPills"></div>
@@ -94,10 +104,10 @@
         </nav>
         <nav class="mode-nav" id="viewBar" aria-label="内容模式">
             <button class="cat-pill view-pill" data-view="featured">⭐ 精选</button>
-            <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
-            <button class="cat-pill view-pill" data-view="new">🆕 最新</button>
             <button class="cat-pill view-pill" data-view="fav">❤️ 收藏</button>
             <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
+            <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
+            <button class="cat-pill view-pill" data-view="new">🆕 最新</button>
             <button class="cat-pill view-pill" data-view="trending">📈 热榜</button>
             <span class="tag-chip" id="tagFilterChip" hidden></span>
         </nav>
@@ -105,6 +115,28 @@
     </div>
     <div class="cards-area" id="cardsArea"></div>
 </main>
+
+<nav class="bottom-nav" id="bottomNav" aria-label="页面工具">
+    <button type="button" class="bn-btn" id="btnAllApps">⊞ 全部应用</button>
+    <button type="button" class="bn-btn" id="btnRecentView">◷ 最近使用</button>
+    <button type="button" class="bn-btn" id="btnSettings" aria-haspopup="true" aria-expanded="false">⚙ 设置</button>
+</nav>
+
+<div class="set-pop" id="setPop" role="menu" hidden>
+    <div class="set-item set-theme-row">
+        <span class="set-label">主题</span>
+        <div class="set-seg" role="group" aria-label="主题切换">
+            <button type="button" data-set-theme="dark">深色</button>
+            <button type="button" data-set-theme="light">浅色</button>
+        </div>
+    </div>
+    <button type="button" class="set-item set-clear" id="setClearData">清除本地数据</button>
+    <div class="set-links" id="setLinks">
+        <a href="links.html">友链</a>
+        <a href="about.html">关于</a>
+        <a href="contribute.html">提交</a>
+    </div>
+</div>
 
 <div class="drawer-overlay" id="drawerOverlay" hidden></div>
 <aside class="cat-drawer" id="catDrawer" aria-label="分类菜单" hidden>
@@ -117,11 +149,6 @@
     <div class="drawer-sec">模式</div>
     <div class="drawer-modes" id="drawerModes"></div>
 </aside>
-
-<footer class="footer">
-    <p><span id="footerText">DogNav &copy; 2026 — Design by CangDog</span><span id="footerBlogWrap"> · <a id="footerBlogLink" href="https://www.cangdog.com" target="_blank" rel="noopener">博客</a></span><span id="footerGithubWrap"> · <a id="footerGithubLink" href="https://github.com/BYGD" target="_blank" rel="noopener">GitHub</a></span><span id="footerVersion"> · v3.2.0</span></p>
-    <p><button type="button" class="footer-clear" id="clearLocalData">清除本地数据（收藏 / 最近访问）</button></p>
-</footer>
 
 <button class="btt" id="btt" aria-label="回到顶部">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>

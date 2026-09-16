@@ -3,8 +3,7 @@
 // 各页面脚本之前引入）
 //   fetch /api/settings（失败静默回退默认值，不阻塞页面），
 //   然后把站点设置应用到当前页面：favicon、logo 文字、标题、
-//   meta 描述、页脚文字与链接、主题色 CSS 变量、投稿入口、
-//   天气组件显隐。
+//   meta 描述、页脚文字与链接、主题色 CSS 变量、投稿入口。
 //   暴露 window.DogNavSettings = { current, ready, siteName() }
 // ═══════════════════════════════════════════
 (function () {
@@ -124,12 +123,6 @@
         }
     }
 
-    function applyWeatherEnabled(v) {
-        if (v !== 'true') return; // 默认隐藏，保持现状
-        const widget = document.getElementById('weatherWidget');
-        if (widget) widget.classList.add('show');
-    }
-
     function apply(settings) {
         applyFavicon(settings.site_icon);
         applySiteName(settings.site_name);
@@ -140,7 +133,6 @@
         applyThemeColor('--accent', '--accent-soft', '--accent-glow', settings.theme_primary_color);
         applyThemeColor('--accent-2', null, null, settings.theme_secondary_color);
         applySubmissionEnabled(settings.submission_enabled);
-        applyWeatherEnabled(settings.weather_enabled);
     }
 
     const ready = fetch('/api/settings')
