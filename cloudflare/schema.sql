@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sites (
     nofollow INTEGER DEFAULT 0,
     seo_title TEXT,
     seo_description TEXT,
+    keywords TEXT NOT NULL DEFAULT '',
     status TEXT DEFAULT 'active',
     last_status TEXT,
     last_check_at TEXT,

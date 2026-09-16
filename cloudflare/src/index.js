@@ -63,7 +63,7 @@ async function initDB(db, env) {
 
     // ── Create all tables ──
     await db.batch([
-        db.prepare(`CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, url TEXT NOT NULL, description TEXT, icon TEXT, screenshot TEXT, category TEXT NOT NULL, sort_order INTEGER DEFAULT 0, is_featured INTEGER DEFAULT 0, click_count INTEGER DEFAULT 0, nofollow INTEGER DEFAULT 0, seo_title TEXT, seo_description TEXT, status TEXT DEFAULT 'active', last_status TEXT, last_check_at TEXT, consecutive_failures INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, url TEXT NOT NULL, description TEXT, icon TEXT, screenshot TEXT, category TEXT NOT NULL, sort_order INTEGER DEFAULT 0, is_featured INTEGER DEFAULT 0, click_count INTEGER DEFAULT 0, nofollow INTEGER DEFAULT 0, seo_title TEXT, seo_description TEXT, keywords TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'active', last_status TEXT, last_check_at TEXT, consecutive_failures INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT, sort_order INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, color TEXT DEFAULT '#667eea')`),
         db.prepare(`CREATE TABLE IF NOT EXISTS site_tags (site_id INTEGER, tag_id INTEGER, PRIMARY KEY (site_id, tag_id))`),
@@ -85,6 +85,7 @@ async function initDB(db, env) {
         'ALTER TABLE sites ADD COLUMN last_status TEXT',
         'ALTER TABLE sites ADD COLUMN last_check_at TEXT',
         'ALTER TABLE sites ADD COLUMN consecutive_failures INTEGER DEFAULT 0',
+        "ALTER TABLE sites ADD COLUMN keywords TEXT NOT NULL DEFAULT ''",
         'ALTER TABLE submissions ADD COLUMN tracking_token TEXT',
         'ALTER TABLE submissions ADD COLUMN review_note TEXT',
         'ALTER TABLE submissions ADD COLUMN normalized_url TEXT',
@@ -336,19 +337,21 @@ app.get('/api/sites', async (c) => {
 app.post('/api/sites', requireAuth, async (c) => {
     const b = await c.req.json();
     if (!b.name || !b.url || !b.category) return c.json({ error: 'Missing required fields' }, 400);
+    if (b.keywords !== undefined && (typeof b.keywords !== 'string' || b.keywords.length > 500)) return c.json({ error: 'Invalid keywords' }, 400);
     const result = await c.env.DB.prepare(
-        `INSERT INTO sites (name,url,description,icon,screenshot,category,sort_order,is_featured,nofollow,seo_title,seo_description,status,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`
-    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.status||'active').run();
+        `INSERT INTO sites (name,url,description,icon,screenshot,category,sort_order,is_featured,nofollow,seo_title,seo_description,keywords,status,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`
+    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.keywords||'', b.status||'active').run();
     await logAction(c.env.DB, c.get('userId'), 'create_site', `Created site: ${b.name}`);
     return c.json({ id: result.meta.last_row_id, message: 'Site added' });
 });
 
 app.put('/api/sites/:id', requireAuth, async (c) => {
     const b = await c.req.json();
+    if (b.keywords !== undefined && (typeof b.keywords !== 'string' || b.keywords.length > 500)) return c.json({ error: 'Invalid keywords' }, 400);
     await c.env.DB.prepare(
-        `UPDATE sites SET name=?,url=?,description=?,icon=?,screenshot=?,category=?,sort_order=?,is_featured=?,nofollow=?,seo_title=?,seo_description=?,status=?,updated_at=datetime('now') WHERE id=?`
-    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.status||'active', c.req.param('id')).run();
+        `UPDATE sites SET name=?,url=?,description=?,icon=?,screenshot=?,category=?,sort_order=?,is_featured=?,nofollow=?,seo_title=?,seo_description=?,keywords=?,status=?,updated_at=datetime('now') WHERE id=?`
+    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.keywords||'', b.status||'active', c.req.param('id')).run();
     await logAction(c.env.DB, c.get('userId'), 'update_site', `Updated site ID: ${c.req.param('id')}`);
     return c.json({ message: 'Site updated' });
 });
@@ -362,7 +365,7 @@ app.delete('/api/sites/:id', requireAuth, async (c) => {
 // Batch operations
 const BATCH_UPDATE_FIELDS = new Set([
     'name', 'url', 'description', 'icon', 'screenshot', 'category',
-    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'status',
+    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'keywords', 'status',
 ]);
 
 app.post('/api/sites/batch', requireAuth, async (c) => {
@@ -1452,10 +1455,10 @@ app.post('/api/import', requireAdmin, async (c) => {
     if (data.sites) {
         stmts.push(db.prepare('DELETE FROM sites'));
         for (const s of data.sites) {
-            stmts.push(db.prepare(`INSERT INTO sites (id,name,url,description,icon,screenshot,category,sort_order,is_featured,click_count,nofollow,seo_title,seo_description,status,last_status,last_check_at,consecutive_failures)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+            stmts.push(db.prepare(`INSERT INTO sites (id,name,url,description,icon,screenshot,category,sort_order,is_featured,click_count,nofollow,seo_title,seo_description,keywords,status,last_status,last_check_at,consecutive_failures)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
                 .bind(s.id, s.name, s.url, s.description||'', s.icon||'', s.screenshot||'', s.category,
-                    s.sort_order||0, s.is_featured||0, s.click_count||0, s.nofollow||0, s.seo_title||'', s.seo_description||'',
+                    s.sort_order||0, s.is_featured||0, s.click_count||0, s.nofollow||0, s.seo_title||'', s.seo_description||'', s.keywords||'',
                     s.status||'active', s.last_status||null, s.last_check_at||null, s.consecutive_failures||0));
         }
         counts.sites = data.sites.length;

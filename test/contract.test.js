@@ -353,6 +353,42 @@ const CASES = [
             assert.equal(site.name, 'Contract Site v2');
         },
     },
+    {
+        name: 'sites: create with keywords returns 200 {"id","message"}',
+        method: 'POST', path: '/api/sites',
+        auth: true,
+        body: { name: 'Keywords Contract Site', url: 'https://keywords-contract.example', category: 'tools', keywords: 'gpt,chatgpt' },
+        expectStatus: 200,
+        expectFields: { id: 'number', message: 'string' },
+        check(res, state) {
+            assert.ok(Number.isInteger(res.body.id) && res.body.id > 0,
+                `real id returned, got ${res.body.id}`);
+            state.keywordsSiteId = res.body.id;
+        },
+    },
+    {
+        name: 'sites: GET shows keywords as a string on the created site',
+        method: 'GET', path: '/api/sites',
+        expectStatus: 200,
+        expectType: 'array',
+        check(res, state) {
+            const site = res.body.find((s) => s.id === state.keywordsSiteId);
+            assert.ok(site, 'keywords site listed');
+            assert.equal(typeof site.keywords, 'string', 'keywords is a string');
+            assert.equal(site.keywords, 'gpt,chatgpt', 'keywords value round-tripped');
+        },
+    },
+    {
+        name: 'sites: POST with 501-char keywords returns 400 "Invalid keywords"',
+        method: 'POST', path: '/api/sites',
+        auth: true,
+        body: { name: 'Long Keywords', url: 'https://long-keywords-contract.example', category: 'tools', keywords: 'x'.repeat(501) },
+        expectStatus: 400,
+        expectFields: { error: 'string' },
+        check(res) {
+            assert.equal(res.body.error, 'Invalid keywords');
+        },
+    },
 
     // ── Batch (field whitelist + action validation) ──
     {

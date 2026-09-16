@@ -77,7 +77,7 @@
 
 ## 2. Sites
 
-站点对象字段（两端表结构一致）：`id, name, url, description, icon, screenshot, category, sort_order, is_featured, click_count, nofollow, seo_title, seo_description, status, last_status, last_check_at, created_at, updated_at`。此外 `GET /api/sites` 的每个站点**追加** `tags` 字段（非数据库列）：数组，元素 `{id, name, color}`，来自 `site_tags JOIN tags`、按 tag `name` 排序，无标签为 `[]`（纯追加，向后兼容）。
+站点对象字段（两端表结构一致）：`id, name, url, description, icon, screenshot, category, sort_order, is_featured, click_count, nofollow, seo_title, seo_description, keywords, status, last_status, last_check_at, created_at, updated_at`。其中 `keywords` 为搜索别名（逗号分隔，如 `"gpt,chatgpt"`，≤500 字符，默认 `''`）。此外 `GET /api/sites` 的每个站点**追加** `tags` 字段（非数据库列）：数组，元素 `{id, name, color}`，来自 `site_tags JOIN tags`、按 tag `name` 排序，无标签为 `[]`（纯追加，向后兼容）。
 
 ### GET /api/sites — 站点列表
 
@@ -105,9 +105,9 @@
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAuth |
-| 请求体 | 必填：`name, url, category`；可选：`description, icon, screenshot, sort_order, is_featured, nofollow, seo_title, seo_description`；Worker 额外接受 `status`（Express 不写入该列，用表默认 `'active'`） |
+| 请求体 | 必填：`name, url, category`；可选：`description, icon, screenshot, sort_order, is_featured, nofollow, seo_title, seo_description, keywords`；Worker 额外接受 `status`（Express 不写入该列，用表默认 `'active'`） |
 | 成功 | `200 {"id":<int>,"message":"Site added"}`（语义上应为 201，见差异清单 D1；**id 为真实自增 id**——Express 原「id 恒 0」quirk 已修复，`E:571-572` 在 `logAction()` 之前读取 `last_insert_rowid()`） |
-| 错误 | `400 {"error":"Missing required fields"}` |
+| 错误 | `400 {"error":"Missing required fields"}`；`400 {"error":"Invalid keywords"}`（非字符串或超 500 字符，两端一致） |
 | 副作用 | 记日志 `create_site` |
 
 ### PUT /api/sites/:id — 全量更新站点
@@ -117,7 +117,7 @@
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAuth |
-| 请求体 | 全量覆盖：`name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, status`（缺省值同 POST；`status` 缺省 `'active'`） |
+| 请求体 | 全量覆盖：`name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, status`（缺省值同 POST；`status` 缺省 `'active'`） |
 | 成功 | `200 {"message":"Site updated"}`（id 不存在也返回 200，无 404） |
 | 副作用 | 记日志 `update_site` |
 
@@ -141,7 +141,7 @@
 | 请求体 | `ids`（必填，非空数组）、`action`（`'delete'` 或 `'update'`）、`data`（action=update 时的字段键值对） |
 | 成功 | `200 {"message":"Batch <action> completed","count":<ids.length>}` |
 | 错误 | `400 {"error":"No IDs provided"}`；`400 {"error":"Invalid field: <f>"}`（`data` 含白名单外键名，两端一致）；`400 {"error":"Invalid action"}`（未知 action，两端一致） |
-| 备注 | `action='update'` 时 `data` 键名须在白名单内（`name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, status`，`E:566-569` / `W:310-313`），原 SQL 注入缺口 S4 已修复；Express 用单条 `IN (...)` 语句，Worker 逐 id 循环执行 |
+| 备注 | `action='update'` 时 `data` 键名须在白名单内（`name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, status`，`E:566-569` / `W:310-313`），原 SQL 注入缺口 S4 已修复；Express 用单条 `IN (...)` 语句，Worker 逐 id 循环执行 |
 
 ### POST /api/sites/:id/click — 点击统计
 
@@ -578,7 +578,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | S1 | 静态根目录暴露 | `E:48` | **已修复**：历史上 `express.static(__dirname)` 暴露项目根（含 `server.js`、`dognav.db`），现仅服务 `public/`；保持回归测试覆盖 |
 | S2 | ~~fetch-icon 未鉴权 SSRF~~ | `E:1820` / `W:984` | **已修复**：两端均收紧为 requireAuth；仅允许 http/https；私网/保留地址拦截且每个重定向跳重查（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量）；手动重定向 ≤3、8s 超时、HTML 限读 50KB；剩余私网判定深度差异见 D8/D16 |
 | S3 | ~~health-check 任意 URL 探测~~ | `E:1892` / `W:1372` | **已修复（阶段 4）**：改为按 `siteIds` 检测库内站点（≤50），不再接受任意 URL；私网/保留地址拦截（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量，见 D16）；并发 5、8s 超时、重定向 ≤3 且逐跳重查 |
-| S4 | ~~batch update SQL 注入~~ | `E:583-586` / `W:324-327` | **已修复**：`data` 键名白名单（12 个可更新列），白名单外返回 `400 Invalid field`，契约测试已覆盖 |
+| S4 | ~~batch update SQL 注入~~ | `E:583-586` / `W:324-327` | **已修复**：`data` 键名白名单（13 个可更新列），白名单外返回 `400 Invalid field`，契约测试已覆盖 |
 | S5 | ~~PUT /api/settings 无白名单~~ | `E:1159-1164` / `W:547-552` | **已修复**：两个 settings PUT 均要求 requireAdmin 且强制可写键白名单（10 键，不含 `weather_api_key`），白名单外键 `400 Invalid setting key`；布尔键归一化为 `'true'/'false'`；旧 `PUT /api/settings` 仅作废弃别名保留（带 `Deprecation`/`Sunset` 头），契约测试已覆盖 |
 | S6 | ~~导出含敏感信息~~ | `E:734` / `W:814` | **已修复**：`/api/export`、`/api/admin/settings`、`/api/logs`、`PUT /api/settings` 均收紧为 requireAdmin |
 | S7 | ~~密钥硬编码入库~~ | `E:321` / `W:98` | **已修复**：两端 `weather_api_key` 默认均为 `''`，前端 `public/js/app.js` 已无硬编码 key |

@@ -187,6 +187,7 @@ async function initDb() {
         nofollow INTEGER DEFAULT 0,
         seo_title TEXT,
         seo_description TEXT,
+        keywords TEXT NOT NULL DEFAULT '',
         status TEXT DEFAULT 'active',
         last_status TEXT,
         last_check_at TEXT,
@@ -327,6 +328,7 @@ async function initDb() {
     ensureColumn('sites', 'last_status', 'last_status TEXT');
     ensureColumn('sites', 'last_check_at', 'last_check_at TEXT');
     ensureColumn('sites', 'consecutive_failures', 'consecutive_failures INTEGER DEFAULT 0');
+    ensureColumn('sites', 'keywords', "keywords TEXT NOT NULL DEFAULT ''");
     ensureColumn('submissions', 'tracking_token', 'tracking_token TEXT');
     ensureColumn('submissions', 'review_note', 'review_note TEXT');
     ensureColumn('submissions', 'normalized_url', 'normalized_url TEXT');
@@ -601,13 +603,16 @@ app.get('/api/sites', (req, res) => {
 
 app.post('/api/sites', requireAuth, (req, res) => {
     try {
-        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description } = req.body;
+        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords } = req.body;
         if (!name || !url || !category) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
-        const stmt = db.prepare(`INSERT INTO sites (name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, updated_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
-        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '']);
+        if (keywords !== undefined && (typeof keywords !== 'string' || keywords.length > 500)) {
+            return res.status(400).json({ error: 'Invalid keywords' });
+        }
+        const stmt = db.prepare(`INSERT INTO sites (name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, updated_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '', keywords || '']);
         stmt.free();
         // Read the rowid immediately after the insert — logAction()/saveDb()
         // run further statements that would clobber last_insert_rowid().
@@ -624,9 +629,12 @@ app.post('/api/sites', requireAuth, (req, res) => {
 
 app.put('/api/sites/:id', requireAuth, (req, res) => {
     try {
-        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, status } = req.body;
-        const stmt = db.prepare(`UPDATE sites SET name=?, url=?, description=?, icon=?, screenshot=?, category=?, sort_order=?, is_featured=?, nofollow=?, seo_title=?, seo_description=?, status=?, updated_at=datetime('now') WHERE id=?`);
-        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '', status || 'active', req.params.id]);
+        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, status } = req.body;
+        if (keywords !== undefined && (typeof keywords !== 'string' || keywords.length > 500)) {
+            return res.status(400).json({ error: 'Invalid keywords' });
+        }
+        const stmt = db.prepare(`UPDATE sites SET name=?, url=?, description=?, icon=?, screenshot=?, category=?, sort_order=?, is_featured=?, nofollow=?, seo_title=?, seo_description=?, keywords=?, status=?, updated_at=datetime('now') WHERE id=?`);
+        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '', keywords || '', status || 'active', req.params.id]);
         stmt.free();
         logAction(req.userId, 'update_site', `Updated site ID: ${req.params.id}`);
         saveDb();
@@ -652,7 +660,7 @@ app.delete('/api/sites/:id', requireAuth, (req, res) => {
 // Batch operations
 const BATCH_UPDATE_FIELDS = new Set([
     'name', 'url', 'description', 'icon', 'screenshot', 'category',
-    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'status',
+    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'keywords', 'status',
 ]);
 app.post('/api/sites/batch', requireAuth, (req, res) => {
     try {
@@ -974,10 +982,10 @@ app.post('/api/import', requireAdmin, (req, res) => {
             db.run("BEGIN");
             if (data.sites) {
                 db.run("DELETE FROM sites");
-                const stmt = db.prepare(`INSERT INTO sites (id, name, url, description, icon, screenshot, category, sort_order, is_featured, click_count, nofollow, seo_title, seo_description, status, last_status, last_check_at, consecutive_failures)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                const stmt = db.prepare(`INSERT INTO sites (id, name, url, description, icon, screenshot, category, sort_order, is_featured, click_count, nofollow, seo_title, seo_description, keywords, status, last_status, last_check_at, consecutive_failures)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
                 data.sites.forEach(s => stmt.run([s.id, s.name, s.url, s.description || '', s.icon || '', s.screenshot || '', s.category,
-                    s.sort_order || 0, s.is_featured || 0, s.click_count || 0, s.nofollow || 0, s.seo_title || '', s.seo_description || '',
+                    s.sort_order || 0, s.is_featured || 0, s.click_count || 0, s.nofollow || 0, s.seo_title || '', s.seo_description || '', s.keywords || '',
                     s.status || 'active', s.last_status || null, s.last_check_at || null, s.consecutive_failures || 0]));
                 stmt.free();
                 counts.sites = data.sites.length;

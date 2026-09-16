@@ -164,6 +164,43 @@ test('sites: create / update / delete with auth', async () => {
     assert.ok(!after.body.some((s) => s.id === id));
 });
 
+test('sites: keywords round-trip via create and update', async () => {
+    const created = await api(ctx.baseUrl, 'POST', '/api/sites', {
+        token: adminToken,
+        body: { name: 'Keywords Site', url: 'https://keywords.example', category: 'tools', keywords: 'gpt,chatgpt' },
+    });
+    assert.equal(created.status, 200);
+    const id = created.body.id;
+    assert.ok(Number.isInteger(id) && id > 0, `real id returned, got ${id}`);
+
+    let list = await api(ctx.baseUrl, 'GET', '/api/sites');
+    let site = list.body.find((s) => s.id === id);
+    assert.ok(site, 'created site visible in public list');
+    assert.equal(site.keywords, 'gpt,chatgpt', 'keywords persisted on create');
+
+    const cleared = await api(ctx.baseUrl, 'PUT', `/api/sites/${id}`, {
+        token: adminToken,
+        body: { name: 'Keywords Site', url: 'https://keywords.example', category: 'tools', keywords: '' },
+    });
+    assert.equal(cleared.status, 200);
+
+    list = await api(ctx.baseUrl, 'GET', '/api/sites');
+    site = list.body.find((s) => s.id === id);
+    assert.equal(site.keywords, '', 'keywords cleared by PUT');
+
+    const del = await api(ctx.baseUrl, 'DELETE', `/api/sites/${id}`, { token: adminToken });
+    assert.equal(del.status, 200);
+});
+
+test('sites: POST with overlong keywords returns 400 "Invalid keywords"', async () => {
+    const res = await api(ctx.baseUrl, 'POST', '/api/sites', {
+        token: adminToken,
+        body: { name: 'Long Keywords', url: 'https://long-keywords.example', category: 'tools', keywords: 'x'.repeat(501) },
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, 'Invalid keywords');
+});
+
 // ── Site tags (GET /api/sites appends `tags`) ──────────────────────────────
 
 test('sites: GET appends tags — {id,name,color} sorted by name, untagged site gets []', async () => {

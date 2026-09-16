@@ -72,6 +72,7 @@
             document.getElementById('siteUrl').value = site ? site.url : '';
             document.getElementById('siteDesc').value = site ? site.description || '' : '';
             document.getElementById('siteIcon').value = site ? site.icon || '' : '';
+            document.getElementById('siteKeywords').value = site ? site.keywords || '' : '';
             // 站点当前分类可能已停用/被删（不在下拉选项中），直接赋值会静默失效并
             // 回落到第一项，保存时就把分类改错了。缺失时临时补一个选项保住原值。
             const catSelect = document.getElementById('siteCategory');
@@ -287,6 +288,7 @@
                 name: document.getElementById('siteName').value,
                 url: document.getElementById('siteUrl').value,
                 description: document.getElementById('siteDesc').value,
+                keywords: document.getElementById('siteKeywords').value,
                 icon: document.getElementById('siteIcon').value,
                 category: document.getElementById('siteCategory').value,
                 sort_order: parseInt(document.getElementById('siteSort').value) || 0
