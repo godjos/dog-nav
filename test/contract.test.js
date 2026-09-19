@@ -42,7 +42,6 @@ const TARGETS = CONTRACT_TARGET === 'both' ? ['express', 'worker'] : [CONTRACT_T
 function getFreePort() {
     return new Promise((resolve, reject) => {
         const srv = net.createServer();
-        srv.unref();
         srv.on('error', reject);
         srv.listen(0, '127.0.0.1', () => {
             const { port } = srv.address();
@@ -97,14 +96,10 @@ function killTree(proc) {
 async function startExpress() {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dognav-contract-'));
     const port = await getFreePort();
-    // Strip WEATHER_API_KEY so POST /api/weather deterministically hits its
-    // 503 "Weather not configured" branch regardless of the ambient shell.
-    const env = { ...process.env };
-    delete env.WEATHER_API_KEY;
     const { proc, getOutput } = spawnLogged(process.execPath, [path.join(ROOT, 'server.js')], {
         cwd: ROOT,
         env: {
-            ...env,
+            ...process.env,
             DB_PATH: path.join(tmpDir, 'contract.db'),
             UPLOAD_DIR: path.join(tmpDir, 'uploads'),
             PORT: String(port),
@@ -142,14 +137,10 @@ async function startWorker() {
     fs.rmSync(path.join(CF_DIR, '.wrangler', 'state'), { recursive: true, force: true });
 
     const port = await getFreePort();
-    // Strip WEATHER_API_KEY for the same reason as startExpress(): the
-    // weather 503 contract case must not depend on the ambient shell.
-    const env = { ...process.env };
-    delete env.WEATHER_API_KEY;
     const { proc, getOutput } = spawnLogged('npx', [
         'wrangler', 'dev', '--local', '--port', String(port),
         '--var', `INITIAL_ADMIN_PASSWORD:${TEST_ADMIN_PASSWORD}`,
-    ], { cwd: CF_DIR, env });
+    ], { cwd: CF_DIR, env: { ...process.env } });
     // First boot may download workerd/miniflare — allow a generous window.
     const fail = await waitReady(proc, port, 120000, getOutput);
     if (fail) {
@@ -180,12 +171,12 @@ async function startWorker() {
 //   check(res, state)           extra assertions; may mutate state (async ok)
 
 // The exact set of keys the public GET /api/settings endpoint may expose
-// (both runtimes). weather_api_key stays server-side; auto_nofollow is gone.
+// (both runtimes). Legacy keys (weather_api_key, auto_nofollow) are gone.
 const EXPECTED_PUBLIC_SETTING_KEYS = [
-    'site_name', 'site_description', 'site_icon',
+    'site_name', 'site_description', 'site_icon', 'site_url',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'submission_enabled', 'weather_enabled',
+    'submission_enabled', 'home_config',
 ];
 
 const CASES = [
@@ -510,14 +501,14 @@ const CASES = [
 
     // ── Settings ──
     {
-        name: 'settings: public GET returns exactly the 10 whitelisted keys',
+        name: 'settings: public GET returns exactly the 11 whitelisted keys',
         method: 'GET', path: '/api/settings',
         expectStatus: 200,
         expectFields: { site_name: 'string' },
         check(res) {
             assert.deepEqual(Object.keys(res.body).sort(), [...EXPECTED_PUBLIC_SETTING_KEYS].sort(),
-                'public settings expose exactly the 10 whitelisted keys');
-            assert.ok(!('weather_api_key' in res.body), 'secret key not exposed publicly');
+                'public settings expose exactly the 11 whitelisted keys');
+            assert.ok(!('weather_api_key' in res.body), 'legacy secret key not exposed publicly');
             assert.ok(!('auto_nofollow' in res.body), 'removed key not exposed publicly');
         },
     },
@@ -582,124 +573,24 @@ const CASES = [
         },
     },
     {
-        // Leaves weather_enabled='true' for the weather cases below; the
-        // restore case after them flips it back to the seeded 'false'.
+        // Toggles submission_enabled false → true and asserts string
+        // normalization both ways, restoring the seeded 'true' default.
         name: 'admin settings: PUT as admin returns 200, boolean value normalized to string',
         method: 'PUT', path: '/api/admin/settings',
         auth: true,
-        body: { site_name: 'DogNav', weather_enabled: true },
+        body: { site_name: 'DogNav', submission_enabled: false },
         expectStatus: 200,
         expectFields: { message: 'string' },
         async check(res, state, ctx) {
             const pub = await ctx.api('GET', '/api/settings');
-            assert.equal(pub.body.weather_enabled, 'true', 'boolean normalized to string');
-        },
-    },
-
-    // ── Weather proxy (public; coordinate check runs before the enabled check) ──
-    {
-        name: 'weather: invalid coordinates return 400 "Invalid coordinates"',
-        method: 'POST', path: '/api/weather',
-        body: { lat: 91, lon: 0 },
-        expectStatus: 400,
-        expectFields: { error: 'string' },
-        check(res) {
-            assert.equal(res.body.error, 'Invalid coordinates');
-        },
-    },
-    {
-        // weather_enabled='true' (set above) but neither runtime is started
-        // with WEATHER_API_KEY, so both must answer 503 before any upstream call.
-        name: 'weather: enabled but WEATHER_API_KEY unset returns 503 "Weather not configured"',
-        method: 'POST', path: '/api/weather',
-        body: { lat: 39.9, lon: 116.4 },
-        expectStatus: 503,
-        expectFields: { error: 'string' },
-        check(res) {
-            assert.equal(res.body.error, 'Weather not configured');
-        },
-    },
-    {
-        name: 'admin settings: restore weather_enabled=false',
-        method: 'PUT', path: '/api/admin/settings',
-        auth: true,
-        body: { weather_enabled: false },
-        expectStatus: 200,
-        expectFields: { message: 'string' },
-        async check(res, state, ctx) {
-            const pub = await ctx.api('GET', '/api/settings');
-            assert.equal(pub.body.weather_enabled, 'false', 'seeded default restored');
-        },
-    },
-    {
-        name: 'weather: disabled returns 404 "Weather disabled"',
-        method: 'POST', path: '/api/weather',
-        body: { lat: 39.9, lon: 116.4 },
-        expectStatus: 404,
-        expectFields: { error: 'string' },
-        check(res) {
-            assert.equal(res.body.error, 'Weather disabled');
-        },
-    },
-
-    // ── Hot list (热榜聚合) ──
-    // 只有未知源的 400 是确定性行为；200/502 取决于外网与上游风控，
-    // 不进契约用例（同 weather 的 502 分支一样靠人工/集成环境验证）。
-    {
-        name: 'hot: unknown source returns 400 "Unknown hot list source"',
-        method: 'GET', path: '/api/hot/not-a-source',
-        expectStatus: 400,
-        expectFields: { error: 'string' },
-        check(res) {
-            assert.equal(res.body.error, 'Unknown hot list source');
-        },
-    },
-
-    // ── Hot status (热榜健康状态，管理后台) ──
-    // 状态读取只读持久层、不触上游，因此无需外网即可断言字段与枚举。
-    {
-        name: 'hot-status: without auth returns 401',
-        method: 'GET', path: '/api/admin/hot-status',
-        expectStatus: 401,
-        expectFields: { error: 'string' },
-    },
-    {
-        name: 'hot-status: refresh without auth returns 401',
-        method: 'POST', path: '/api/admin/hot-status/zhihu/refresh',
-        expectStatus: 401,
-        expectFields: { error: 'string' },
-    },
-    {
-        name: 'hot-status: refresh unknown source returns 400 "Unknown hot list source"',
-        method: 'POST', path: '/api/admin/hot-status/not-a-source/refresh',
-        auth: true,
-        expectStatus: 400,
-        expectFields: { error: 'string' },
-        check(res) {
-            assert.equal(res.body.error, 'Unknown hot list source');
-        },
-    },
-    {
-        name: 'hot-status: authed returns six sources with the status enum and fixed fields',
-        method: 'GET', path: '/api/admin/hot-status',
-        auth: true,
-        expectStatus: 200,
-        expectType: 'array',
-        elementFields: {
-            source: 'string', name: 'string', status: 'string',
-            consecutiveFailures: 'number',
-        },
-        check(res) {
-            assert.equal(res.body.length, 6, 'exactly six hot sources');
-            const sources = res.body.map(s => s.source).sort();
-            assert.deepEqual(sources, ['36kr', 'bilibili', 'ithome', 'sspai', 'weibo', 'zhihu']);
-            for (const s of res.body) {
-                assert.ok(['fresh', 'stale', 'unavailable', 'never'].includes(s.status),
-                    `status enum, got "${s.status}"`);
-                for (const f of ['updated', 'lastAttempt', 'lastErrorCode']) {
-                    assert.ok(f in s, `field "${f}" present (may be null)`);
-                }
-            }
+            assert.equal(pub.body.submission_enabled, 'false', 'boolean normalized to string');
+            const restore = await ctx.api('PUT', '/api/admin/settings', {
+                token: state.adminToken,
+                body: { submission_enabled: true },
+            });
+            assert.equal(restore.status, 200);
+            const pub2 = await ctx.api('GET', '/api/settings');
+            assert.equal(pub2.body.submission_enabled, 'true', 'seeded default restored');
         },
     },
 

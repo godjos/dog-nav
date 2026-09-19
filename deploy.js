@@ -21,9 +21,7 @@
  *   7. wrangler deploy，并从输出解析真实 workers.dev 地址
  *      （可用环境变量 DEPLOY_VERIFY_URL 覆盖）
  *   8. 部署后验证:
- *      - 核心冒烟（/ 、/api/settings、未知热榜源 400）失败 → 自动回滚并退出非零
- *      - 六个外部热榜源验证（失败重试三轮，间隔可用 DEPLOY_VERIFY_RETRY_MS 覆盖）
- *        三轮后仍失败 → 打印诊断、退出非零，但不回滚
+ *      - 核心冒烟（/ 、/api/settings 返回 JSON）失败 → 自动回滚并退出非零
  *
  * 可选: 导入完整 150+ 站点数据
  *   npm run db:seed
@@ -39,13 +37,6 @@ const TOML_PATHS = [
     path.join(ROOT, 'wrangler.toml'),
     path.join(ROOT, 'cloudflare', 'wrangler.toml'),
 ];
-const HOT_SOURCES = ['zhihu', 'weibo', 'bilibili', 'ithome', '36kr', 'sspai'];
-const DEFAULT_RETRY_MS = 10000;
-const SOURCE_VERIFY_ROUNDS = 3;
-
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // ─── 命令执行器 ──────────────────────────────────────────────────────────────
 // 默认失败即抛错（带 stdout/stderr 摘要）。只有明确的探测步骤才传
@@ -118,30 +109,8 @@ function summarize(text) {
     return String(text || '').replace(/\s+/g, ' ').slice(0, 120);
 }
 
-function checkSourceResult(source, res) {
-    if (res.error) return `请求失败: ${res.error}`;
-    if (res.status !== 200) return `HTTP ${res.status}: ${summarize(res.text)}`;
-    if (!res.json || typeof res.json !== 'object' || Array.isArray(res.json)) {
-        return `响应不是 JSON 对象: ${summarize(res.text)}`;
-    }
-    if (res.json.source !== source) {
-        return `source 字段不匹配: 期望 "${source}"，实际 ${JSON.stringify(res.json.source)}`;
-    }
-    if (!Array.isArray(res.json.items) || res.json.items.length < 5) {
-        const n = Array.isArray(res.json.items) ? res.json.items.length : '无 items 数组';
-        return `热榜条目不足 5 条（实际: ${n}）`;
-    }
-    return null;
-}
-
-// 返回 verify(baseUrl) → { coreFailures: string[], sourceFailures: { source: 诊断 } }
-// coreFailures 非空 → 调用方应回滚；sourceFailures 非空 → 报错退出但不回滚。
-function createVerifier({
-    fetchImpl = fetch,
-    retryDelayMs = DEFAULT_RETRY_MS,
-    sources = HOT_SOURCES,
-    sleepImpl = sleep,
-} = {}) {
+// 返回 verify(baseUrl) → { coreFailures: string[] }；非空 → 调用方应回滚。
+function createVerifier({ fetchImpl = fetch } = {}) {
     return async function verify(baseUrl) {
         const coreFailures = [];
 
@@ -167,36 +136,7 @@ function createVerifier({
             }
         }
 
-        // c. 未知热榜源必须 400
-        const unknown = await request(fetchImpl, `${baseUrl}/api/hot/not-a-source`);
-        if (unknown.error) {
-            coreFailures.push(`GET /api/hot/not-a-source 请求失败: ${unknown.error}`);
-        } else if (unknown.status !== 400) {
-            coreFailures.push(`GET /api/hot/not-a-source 期望 400，实际 ${unknown.status}`);
-        }
-
-        // 外部热榜源: 失败的源间隔重试共三轮
-        const sourceFailures = {};
-        let pending = [...sources];
-        for (let round = 1; round <= SOURCE_VERIFY_ROUNDS && pending.length > 0; round++) {
-            const stillFailing = [];
-            for (const source of pending) {
-                const res = await request(fetchImpl, `${baseUrl}/api/hot/${source}`);
-                const problem = checkSourceResult(source, res);
-                if (problem) {
-                    sourceFailures[source] = problem; // 保留最近一次诊断
-                    stillFailing.push(source);
-                } else {
-                    delete sourceFailures[source];
-                }
-            }
-            pending = stillFailing;
-            if (pending.length > 0 && round < SOURCE_VERIFY_ROUNDS) {
-                await sleepImpl(retryDelayMs);
-            }
-        }
-
-        return { coreFailures, sourceFailures };
+        return { coreFailures };
     };
 }
 
@@ -384,8 +324,7 @@ async function main() {
 
     // ─── Step 8: Post-deploy verification ───
     step('Step 8/8: 部署后验证');
-    const retryDelayMs = Number(process.env.DEPLOY_VERIFY_RETRY_MS) || DEFAULT_RETRY_MS;
-    const verify = createVerifier({ retryDelayMs });
+    const verify = createVerifier();
     const result = await verify(verifyUrl);
 
     if (shouldRollback(result)) {
@@ -403,17 +342,7 @@ async function main() {
         throw new Error('部署后核心验证失败，已尝试回滚');
     }
 
-    const failedSources = Object.keys(result.sourceFailures);
-    if (failedSources.length > 0) {
-        console.error('\n✗ 以下外部热榜源验证失败（三轮重试后仍失败，不回滚）:');
-        for (const source of failedSources) {
-            console.error(`  - ${source}: ${result.sourceFailures[source]}`);
-        }
-        throw new Error(`外部热榜源验证失败: ${failedSources.join(', ')}`);
-    }
-
-    console.log('✓ 核心冒烟通过（/ 、/api/settings、未知热榜源 400）');
-    console.log(`✓ 外部热榜源全部通过（${HOT_SOURCES.join(', ')}）`);
+    console.log('✓ 核心冒烟通过（/ 、/api/settings）');
 
     // ─── Done!（只有走到这里才允许打印"部署成功"）───
     console.log(`\n${'═'.repeat(50)}`);
@@ -444,5 +373,4 @@ module.exports = {
     createVerifier,
     shouldRollback,
     updateTomlDbId,
-    HOT_SOURCES,
 };

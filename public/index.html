@@ -40,9 +40,10 @@
 
 <!-- ═══ 工作台首页（默认视图） ═══ -->
 <main class="home" id="homeView">
+    <div id="homeLoadState" role="status" aria-live="polite" hidden></div>
     <section class="hero">
         <h1 class="greet" id="greet">晚上好</h1>
-        <p class="greet-sub">专注当下，探索更大的可能</p>
+        <p class="greet-sub" id="siteDescription">专注当下，探索更大的可能</p>
     </section>
 
     <header class="search-sec">
@@ -59,8 +60,12 @@
             <div class="search-panel" id="searchPanel" role="listbox" aria-label="站内搜索结果" hidden></div>
         </div>
     </header>
+    <p class="search-provider">外部搜索：<span id="engineLabel">百度</span> · 点击放大镜切换</p>
 
     <section class="dock-sec" aria-label="常用应用">
+        <div class="dock-edit-bar"><button type="button" class="note-btn" id="editDock" aria-pressed="false">编辑常用</button>
+            <span id="dockEditActions" hidden><button type="button" class="note-btn" id="addDock">添加站点</button><button type="button" class="note-btn" id="resetDock">恢复默认</button></span>
+        </div>
         <div class="dock" id="dockBar"></div>
         <p class="dock-hint" id="dockHint" hidden>在「全部应用」中点卡片上的 📌，把常用站点固定到这里</p>
     </section>
@@ -91,7 +96,7 @@
     <section class="cat-sections" id="catSections" aria-label="分类导航"></section>
 </main>
 
-<!-- ═══ 全部应用（二级浏览视图：分类 + 精选/收藏/最近/热门/最新/热榜） ═══ -->
+<!-- ═══ 全部应用（二级浏览视图：分类 + 精选/收藏/最近/热门/最新） ═══ -->
 <main class="panel" id="allView" hidden>
     <div class="panel-head">
         <nav class="cat-nav" id="catNav" aria-label="站点分类">
@@ -108,7 +113,6 @@
             <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
             <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
             <button class="cat-pill view-pill" data-view="new">🆕 最新</button>
-            <button class="cat-pill view-pill" data-view="trending">📈 热榜</button>
             <span class="tag-chip" id="tagFilterChip" hidden></span>
         </nav>
         <div class="tag-nav" id="tagNav" hidden></div>
@@ -123,6 +127,7 @@
 </nav>
 
 <div class="set-pop" id="setPop" role="menu" hidden>
+    <div class="set-item"><span class="logo-text">DogNav</span></div>
     <div class="set-item set-theme-row">
         <span class="set-label">主题</span>
         <div class="set-seg" role="group" aria-label="主题切换">
@@ -131,10 +136,18 @@
         </div>
     </div>
     <button type="button" class="set-item set-clear" id="setClearData">清除本地数据</button>
+    <button type="button" class="set-item" id="setExportPrefs">导出偏好</button>
+    <button type="button" class="set-item" id="setImportPrefs">导入偏好</button>
+    <input type="file" id="prefFileInput" accept=".json" hidden>
     <div class="set-links" id="setLinks">
         <a href="links.html">友链</a>
         <a href="about.html">关于</a>
         <a href="contribute.html">提交</a>
+    </div>
+    <div class="set-links">
+        <span id="footerBlogWrap" style="display:none"><a id="footerBlogLink" target="_blank" rel="noopener">博客</a></span>
+        <span id="footerGithubWrap" style="display:none"><a id="footerGithubLink" target="_blank" rel="noopener">GitHub</a></span>
+        <p class="set-item" id="footerText" hidden></p>
     </div>
 </div>
 
@@ -155,6 +168,7 @@
 </button>
 
 <script src="/js/utils.js"></script>
+<script src="/js/home-config.js"></script>
 <script src="/js/settings-loader.js"></script>
 <script src="/js/app.js"></script>
 </body>

@@ -21,17 +21,12 @@ INSERT INTO categories (id, name, icon, sort_order, is_active) VALUES
 ('design', '设计素材', '🎨', 10, 1);
 
 -- ═══════════════════════════════════════════
--- 3. Default Settings (11 key-value pairs)
+-- 3. Default Settings (9 key-value pairs)
 -- ═══════════════════════════════════════════
--- NOTE: weather_api_key is seeded empty (no plaintext keys in the repo) and
--- is never exposed publicly; the live key comes from the WEATHER_API_KEY
--- environment variable. auto_nofollow was removed in phase 2.
 INSERT INTO settings (key, value) VALUES
 ('site_name', 'DogNav'),
 ('site_description', '发现互联网的无限精彩'),
 ('site_icon', ''),
-('weather_api_key', ''),
-('weather_enabled', 'false'),
 ('footer_text', 'DogNav © 2026 — Design by CangDog'),
 ('footer_blog_url', 'https://www.cangdog.com'),
 ('footer_github_url', 'https://github.com/BYGD'),

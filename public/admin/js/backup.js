@@ -25,7 +25,7 @@
             }
         }
 
-        // 导入结果汇总：各表计数 + 被跳过的设置项数量
+        // 导入结果汇总：各表计数 + 被跳过的设置项数量 + 恢复的图标文件数
         function importSummary(result) {
             const c = result.counts || {};
             const parts = ['sites', 'categories', 'tags', 'links', 'pages']
@@ -33,6 +33,7 @@
                 .map(k => `${k}: ${c[k]}`);
             let msg = '导入成功' + (parts.length ? '（' + parts.join('，') + '）' : '');
             if (result.skippedSettings > 0) msg += `，已跳过 ${result.skippedSettings} 项非公开设置`;
+            if (result.iconsRestored > 0) msg += `，已恢复 ${result.iconsRestored} 个站点图标文件`;
             return msg;
         }
 
@@ -87,6 +88,50 @@
             });
         }
 
+        let pendingBookmarks = null; // 已解析待确认导入的书签树
+
+        function renderBookmarkPreview(result, fileName) {
+            const preview = document.getElementById('bookmarkPreview');
+            const summary = document.getElementById('bookmarkSummary');
+            const list = document.getElementById('bookmarkList');
+            if (result.totalSites === 0) return false;
+            const folders = result.roots.filter(n => n.children);
+            const flat = result.roots.filter(n => n.url);
+            const folderCount = folders.length;
+            const parts = [];
+            if (folderCount) parts.push(`${folderCount} 个分类`);
+            if (flat.length) parts.push(`${flat.length} 个未分类站点`);
+            summary.textContent = `「${fileName}」解析成功：共 ${result.totalSites} 个站点` +
+                (parts.length ? `（${parts.join('，')}）` : '') + '，将跳过与现有站点重复的条目。';
+            list.textContent = '';
+            const items = [];
+            const collect = (nodes, prefix) => nodes.forEach(n => {
+                if (n.url) items.push((prefix ? prefix + ' / ' : '') + n.title);
+                else if (n.children) collect(n.children, prefix ? prefix + ' / ' + n.title : n.title);
+            });
+            collect(result.roots, '');
+            const MAX_LIST = 200;
+            items.slice(0, MAX_LIST).forEach(text => {
+                const li = document.createElement('li');
+                li.textContent = text;
+                list.appendChild(li);
+            });
+            if (items.length > MAX_LIST) {
+                const li = document.createElement('li');
+                li.className = 'bm-empty';
+                li.textContent = `…还有 ${items.length - MAX_LIST} 个站点`;
+                list.appendChild(li);
+            }
+            preview.hidden = false;
+            return true;
+        }
+
+        function resetBookmarkImport() {
+            pendingBookmarks = null;
+            document.getElementById('bookmarkPreview').hidden = true;
+            document.getElementById('bookmarkFile').value = '';
+        }
+
         async function importBookmarks(event) {
             const input = event.target;
             const file = input.files[0];
@@ -111,34 +156,71 @@
             input.disabled = true;
             fileInfo.hidden = false;
             fileInfo.textContent = `已选择：${file.name}（${(file.size / 1024).toFixed(1)} KB）`;
-            wrap.hidden = false;
             try {
-                setStatus('正在读取文件…');
+                setStatus('正在读取并解析书签…');
                 const text = await readFileWithProgress(file, (p) => setProgress(p * 100));
-
-                setStatus('正在解析书签…');
-                let data;
-                try {
-                    data = JSON.parse(text);
-                } catch {
-                    setStatus('导入失败：文件不是有效的 JSON，请导出浏览器书签后重试。', 'error');
-                    showToast('文件格式错误：不是有效的 JSON', 'error');
+                const result = DogNavBookmarkParser.parse(text);
+                if (result.error || result.totalSites === 0) {
+                    const msg = result.error === 'json'
+                        ? '导入失败：文件不是有效的 JSON，请检查书签文件后重试。'
+                        : result.error === 'empty'
+                            ? '导入失败：文件为空。'
+                            : result.error === 'unsupported'
+                                ? '导入失败：无法识别的书签格式，请使用浏览器导出的书签 JSON 或 HTML 文件。'
+                                : '导入失败：文件中没有可导入的书签。';
+                    setStatus(msg, 'error');
+                    showToast(msg, 'error');
                     return;
                 }
+                if (!renderBookmarkPreview(result, file.name)) {
+                    setStatus('导入失败：文件中没有可导入的书签。', 'error');
+                    return;
+                }
+                pendingBookmarks = result.roots;
+                setStatus('请确认上方的导入预览。');
+            } catch (err) {
+                setStatus('导入失败：文件读取失败，请重试。', 'error');
+                showToast('文件读取失败', 'error');
+            } finally {
+                input.disabled = false;
+            }
+        }
 
-                setStatus('正在写入分类和站点…');
-                setIndeterminate(true);
+        async function confirmImportBookmarks() {
+            if (!pendingBookmarks) return;
+            const roots = pendingBookmarks;
+            const input = document.getElementById('bookmarkFile');
+            const wrap = document.getElementById('bookmarkProgressWrap');
+            const fill = document.getElementById('bookmarkProgressFill');
+            const pctText = document.getElementById('bookmarkProgressText');
+            const statusEl = document.getElementById('bookmarkImportStatus');
+            const setProgress = (pct) => {
+                fill.style.width = pct + '%';
+                pctText.textContent = Math.round(pct) + '%';
+            };
+            const setIndeterminate = (on) => wrap.classList.toggle('indeterminate', on);
+            const setStatus = (msg, type) => {
+                statusEl.textContent = msg;
+                statusEl.className = 'import-status' + (type ? ' ' + type : '');
+            };
+
+            document.getElementById('bookmarkPreview').hidden = true;
+            wrap.hidden = false;
+            setProgress(100);
+            setIndeterminate(true);
+            setStatus('正在写入分类和站点…');
+            try {
                 const res = await fetch('/api/import/bookmarks', {
                     method: 'POST',
                     headers: authHeaders(),
-                    body: JSON.stringify(data)
+                    body: JSON.stringify(roots)
                 });
                 const result = await res.json().catch(() => ({}));
                 if (res.ok) {
                     setIndeterminate(false);
-                    setProgress(100);
                     setStatus(`导入完成：${result.sites} 个站点、${result.categories} 个分类已写入。图标可在「站点管理」页批量修复。`, 'success');
                     showToast(`导入成功：${result.sites} 个站点，${result.categories} 个分类`);
+                    resetBookmarkImport();
                 } else if (res.status === 400) {
                     const msg = result.error === 'No bookmarks found'
                         ? '导入失败：文件中没有可导入的书签。'
@@ -146,7 +228,6 @@
                     setStatus(msg, 'error');
                     showToast(msg, 'error');
                 } else if (res.status === 403 || res.status === 429 || res.status === 401) {
-                    // 401/403 由 auth.js 统一跳转/提示，429 已提示频率限制
                     setStatus('导入未执行：没有权限或操作过于频繁。', 'error');
                 } else {
                     setStatus('导入失败：' + (result.error || '服务器错误'), 'error');
@@ -157,8 +238,7 @@
                 showToast('网络错误，导入失败', 'error');
             } finally {
                 setIndeterminate(false);
-                input.disabled = false;
-                input.value = '';
+                document.getElementById('bookmarkProgressWrap').hidden = true;
             }
         }
 
@@ -166,3 +246,5 @@
         document.getElementById('exportBtn').addEventListener('click', exportData);
         document.getElementById('importFile').addEventListener('change', importData);
         document.getElementById('bookmarkFile').addEventListener('change', importBookmarks);
+        document.getElementById('bookmarkConfirmBtn').addEventListener('click', confirmImportBookmarks);
+        document.getElementById('bookmarkCancelBtn').addEventListener('click', resetBookmarkImport);

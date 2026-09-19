@@ -1,3 +1,6 @@
+import homeConfig from '../../public/js/home-config.js';
+import settingsSchema from '../../public/js/settings-schema.js';
+const { validateSettingsUpdate } = settingsSchema;
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import {
@@ -9,35 +12,6 @@ import {
     SESSION_TTL_MS,
 } from './auth.mjs';
 import { isPrivateHostSync, normalizeUrl } from './netutils.mjs';
-import { HOT_SOURCES, getHotList, getHotStatus } from './hotlist.mjs';
-
-// 热榜持久层（D1）：接口契约见 hotlist.mjs 顶部注释
-function createHotStore(db) {
-    return {
-        async read(source) {
-            return db.prepare('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache WHERE source=?')
-                .bind(source).first();
-        },
-        async readAll() {
-            const { results } = await db.prepare('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache').all();
-            return results;
-        },
-        async writeSuccess(source, payload, nowIso) {
-            await db.prepare(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
-                VALUES (?, ?, ?, ?, NULL, 0)
-                ON CONFLICT(source) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at,
-                    last_attempt_at=excluded.last_attempt_at, last_error_code=NULL, consecutive_failures=0`)
-                .bind(source, payload, nowIso, nowIso).run();
-        },
-        async writeFailure(source, errorCode, nowIso) {
-            await db.prepare(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
-                VALUES (?, NULL, NULL, ?, ?, 1)
-                ON CONFLICT(source) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,
-                    last_error_code=excluded.last_error_code, consecutive_failures=hot_cache.consecutive_failures+1`)
-                .bind(source, nowIso, errorCode).run();
-        },
-    };
-}
 
 const app = new Hono();
 
@@ -63,7 +37,7 @@ async function initDB(db, env) {
 
     // ── Create all tables ──
     await db.batch([
-        db.prepare(`CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, url TEXT NOT NULL, description TEXT, icon TEXT, screenshot TEXT, category TEXT NOT NULL, sort_order INTEGER DEFAULT 0, is_featured INTEGER DEFAULT 0, click_count INTEGER DEFAULT 0, nofollow INTEGER DEFAULT 0, seo_title TEXT, seo_description TEXT, keywords TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'active', last_status TEXT, last_check_at TEXT, consecutive_failures INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, url TEXT NOT NULL, description TEXT, icon TEXT, category TEXT NOT NULL, sort_order INTEGER DEFAULT 0, is_featured INTEGER DEFAULT 0, click_count INTEGER DEFAULT 0, nofollow INTEGER DEFAULT 0, keywords TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'active', last_status TEXT, last_check_at TEXT, consecutive_failures INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT, sort_order INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, color TEXT DEFAULT '#667eea')`),
         db.prepare(`CREATE TABLE IF NOT EXISTS site_tags (site_id INTEGER, tag_id INTEGER, PRIMARY KEY (site_id, tag_id))`),
@@ -76,7 +50,6 @@ async function initDB(db, env) {
         db.prepare(`CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, reason TEXT, reporter_email TEXT, detail TEXT, reporter_ip TEXT, status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME, resolved_by INTEGER)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, ip_address TEXT, user_agent TEXT, referrer TEXT, clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
-        db.prepare(`CREATE TABLE IF NOT EXISTS hot_cache (source TEXT PRIMARY KEY, payload TEXT, updated_at TEXT, last_attempt_at TEXT, last_error_code TEXT, consecutive_failures INTEGER DEFAULT 0)`),
     ]);
 
     // ── Idempotent migrations for databases created by older versions ──
@@ -128,15 +101,10 @@ async function initDB(db, env) {
     ]);
 
     // Default settings — kept in sync with the Express backend (server.js).
-    // weather_api_key stays in the table (legacy, always empty) but is never
-    // exposed publicly; the live weather key comes from the WEATHER_API_KEY
-    // environment variable.
     await db.batch([
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'DogNav')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_description', '发现互联网的无限精彩')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_icon', '')"),
-        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('weather_api_key', '')"),
-        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('weather_enabled', 'false')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_text', 'DogNav © 2026 — Design by CangDog')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_blog_url', 'https://www.cangdog.com')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_github_url', 'https://github.com/BYGD')"),
@@ -323,7 +291,8 @@ app.put('/api/auth/password', requireAuth, async (c) => {
 app.get('/api/sites', async (c) => {
     const sort = c.req.query('sort');
     const orderBy = sort === 'created' ? 'created_at DESC, id DESC' : 'sort_order, category, name';
-    const { results } = await c.env.DB.prepare(`SELECT * FROM sites ORDER BY ${orderBy}`).all();
+    const SITE_COLUMNS = 'id, name, url, description, icon, category, sort_order, is_featured, click_count, nofollow, keywords, status, last_status, last_check_at, consecutive_failures, created_at, updated_at';
+    const { results } = await c.env.DB.prepare(`SELECT ${SITE_COLUMNS} FROM sites ORDER BY ${orderBy}`).all();
     const { results: tagRows } = await c.env.DB.prepare(
         `SELECT st.site_id, t.id, t.name, t.color FROM site_tags st JOIN tags t ON t.id = st.tag_id ORDER BY t.name`
     ).all();
@@ -339,9 +308,9 @@ app.post('/api/sites', requireAuth, async (c) => {
     if (!b.name || !b.url || !b.category) return c.json({ error: 'Missing required fields' }, 400);
     if (b.keywords !== undefined && (typeof b.keywords !== 'string' || b.keywords.length > 500)) return c.json({ error: 'Invalid keywords' }, 400);
     const result = await c.env.DB.prepare(
-        `INSERT INTO sites (name,url,description,icon,screenshot,category,sort_order,is_featured,nofollow,seo_title,seo_description,keywords,status,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`
-    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.keywords||'', b.status||'active').run();
+        `INSERT INTO sites (name,url,description,icon,category,sort_order,is_featured,nofollow,keywords,status,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))`
+    ).bind(b.name, b.url, b.description||'', b.icon||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.keywords||'', b.status||'active').run();
     await logAction(c.env.DB, c.get('userId'), 'create_site', `Created site: ${b.name}`);
     return c.json({ id: result.meta.last_row_id, message: 'Site added' });
 });
@@ -350,8 +319,8 @@ app.put('/api/sites/:id', requireAuth, async (c) => {
     const b = await c.req.json();
     if (b.keywords !== undefined && (typeof b.keywords !== 'string' || b.keywords.length > 500)) return c.json({ error: 'Invalid keywords' }, 400);
     await c.env.DB.prepare(
-        `UPDATE sites SET name=?,url=?,description=?,icon=?,screenshot=?,category=?,sort_order=?,is_featured=?,nofollow=?,seo_title=?,seo_description=?,keywords=?,status=?,updated_at=datetime('now') WHERE id=?`
-    ).bind(b.name, b.url, b.description||'', b.icon||'', b.screenshot||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.seo_title||'', b.seo_description||'', b.keywords||'', b.status||'active', c.req.param('id')).run();
+        `UPDATE sites SET name=?,url=?,description=?,icon=?,category=?,sort_order=?,is_featured=?,nofollow=?,keywords=?,status=?,updated_at=datetime('now') WHERE id=?`
+    ).bind(b.name, b.url, b.description||'', b.icon||'', b.category, b.sort_order||0, b.is_featured||0, b.nofollow||0, b.keywords||'', b.status||'active', c.req.param('id')).run();
     await logAction(c.env.DB, c.get('userId'), 'update_site', `Updated site ID: ${c.req.param('id')}`);
     return c.json({ message: 'Site updated' });
 });
@@ -364,8 +333,8 @@ app.delete('/api/sites/:id', requireAuth, async (c) => {
 
 // Batch operations
 const BATCH_UPDATE_FIELDS = new Set([
-    'name', 'url', 'description', 'icon', 'screenshot', 'category',
-    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'keywords', 'status',
+    'name', 'url', 'description', 'icon', 'category',
+    'sort_order', 'is_featured', 'nofollow', 'keywords', 'status',
 ]);
 
 app.post('/api/sites/batch', requireAuth, async (c) => {
@@ -720,56 +689,38 @@ app.get('/api/logs', requireAdmin, async (c) => {
 // SETTINGS API
 // ═══════════════════════════════════════════
 
-// Settings keys safe to expose publicly. Anything else (e.g. weather_api_key)
-// is only available through the authenticated /api/admin/settings endpoint.
+// Settings keys safe to expose publicly. Anything else is only available
+// through the authenticated /api/admin/settings endpoint.
 const PUBLIC_SETTING_KEYS = new Set([
     'site_name', 'site_description', 'site_icon',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'submission_enabled', 'weather_enabled',
+    'submission_enabled', 'home_config', 'site_url',
 ]);
 
 // Keys writable through PUT /api/admin/settings (and the deprecated
-// PUT /api/settings). weather_api_key is intentionally absent — the
-// weather API key comes from the WEATHER_API_KEY environment variable.
+// PUT /api/settings).
 const WRITABLE_SETTING_KEYS = new Set([
     'site_name', 'site_description', 'site_icon',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'weather_enabled', 'submission_enabled',
+    'submission_enabled', 'home_config', 'site_url',
 ]);
 
-// Boolean-valued settings: accept 'true'/'false' or real booleans,
-// always stored as the strings 'true'/'false'.
-const BOOL_SETTING_KEYS = new Set(['weather_enabled', 'submission_enabled']);
-
-function normalizeSettingValue(key, value) {
-    if (BOOL_SETTING_KEYS.has(key)) {
-        return (value === true || value === 'true') ? 'true' : 'false';
-    }
-    return String(value);
-}
-
-// Shared handler for PUT /api/admin/settings and deprecated PUT /api/settings.
-// Returns an error message on the first non-whitelisted key, or null.
+// Validate every field before creating any write statements.
 async function applySettingsUpdate(db, body, userId) {
-    const entries = Object.entries(body || {});
-    for (const [key] of entries) {
-        if (!WRITABLE_SETTING_KEYS.has(key)) {
-            return `Invalid setting key: ${key}`;
-        }
-    }
-    for (const [key, value] of entries) {
-        await db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES (?,?,datetime('now'))")
-            .bind(key, normalizeSettingValue(key, value)).run();
-    }
+    const result = validateSettingsUpdate(body);
+    if (result.error) return { error: result.error, field: result.field };
+    const statements = Object.entries(result.values).map(([key, value]) =>
+        db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES (?,?,datetime('now'))").bind(key, value));
+    if (statements.length) await db.batch(statements);
     await logAction(db, userId, 'update_settings', 'Settings updated');
     return null;
 }
 
 app.get('/api/settings', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT key, value FROM settings').all();
-    const settings = {};
+    const settings = { home_config: JSON.stringify(homeConfig.DEFAULTS), site_url: '' };
     for (const row of results) {
         if (PUBLIC_SETTING_KEYS.has(row.key)) settings[row.key] = row.value;
     }
@@ -779,156 +730,26 @@ app.get('/api/settings', async (c) => {
 // Full settings (including secrets) for the admin panel
 app.get('/api/admin/settings', requireAdmin, async (c) => {
     const { results } = await c.env.DB.prepare('SELECT key, value FROM settings').all();
-    const settings = {};
+    const settings = { home_config: JSON.stringify(homeConfig.DEFAULTS), site_url: '' };
     for (const row of results) settings[row.key] = row.value;
     return c.json(settings);
 });
 
 app.put('/api/admin/settings', requireAdmin, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body = await c.req.json().catch(() => null);
     const err = await applySettingsUpdate(c.env.DB, body, c.get('userId'));
-    if (err) return c.json({ error: err }, 400);
+    if (err) return c.json(err, 400);
     return c.json({ message: 'Settings updated' });
 });
 
 // Deprecated alias kept for backward compatibility. Use PUT /api/admin/settings.
 app.put('/api/settings', requireAdmin, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body = await c.req.json().catch(() => null);
     const err = await applySettingsUpdate(c.env.DB, body, c.get('userId'));
-    if (err) return c.json({ error: err }, 400);
+    if (err) return c.json(err, 400);
     c.header('Deprecation', 'true');
     c.header('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT');
     return c.json({ message: 'Settings updated', deprecated: true });
-});
-
-// ═══════════════════════════════════════════
-// WEATHER PROXY API
-// ═══════════════════════════════════════════
-
-// In-memory cache of successful weather responses, keyed by coordinates
-// rounded to 0.1°, with a 10 minute TTL. Failures are never cached.
-const weatherCache = new Map(); // key -> { data, expires }
-const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
-
-// Fetch current weather from QWeather; throws on any upstream failure.
-async function fetchQWeather(lat, lon, apiKey) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-        const resp = await fetch(
-            `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}&key=${apiKey}`,
-            { signal: controller.signal });
-        if (!resp.ok) throw new Error(`upstream status ${resp.status}`);
-        const data = await resp.json();
-        if (data.code !== '200') throw new Error(`upstream code ${data.code}`);
-        const now = data.now;
-
-        // Best-effort city name lookup; failure leaves city as null.
-        let city = null;
-        try {
-            const cResp = await fetch(
-                `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}&key=${apiKey}&number=1`,
-                { signal: controller.signal });
-            if (cResp.ok) {
-                const cData = await cResp.json();
-                if (cData.code === '200' && cData.location && cData.location[0]) {
-                    city = cData.location[0].name;
-                }
-            }
-        } catch { /* city stays null */ }
-
-        return {
-            temp: Number(now.temp),
-            feelsLike: Number(now.feelsLike),
-            text: now.text,
-            icon: now.icon,
-            humidity: Number(now.humidity),
-            windDir: now.windDir,
-            windScale: Number(now.windScale),
-            updateTime: now.updateTime,
-            city,
-        };
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-app.post('/api/weather', async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const nLat = Number(body.lat);
-    const nLon = Number(body.lon);
-    if (!Number.isFinite(nLat) || !Number.isFinite(nLon) ||
-        nLat < -90 || nLat > 90 || nLon < -180 || nLon > 180) {
-        return c.json({ error: 'Invalid coordinates' }, 400);
-    }
-    const enabled = await c.env.DB.prepare('SELECT value FROM settings WHERE key=?')
-        .bind('weather_enabled').first();
-    if (!enabled || enabled.value !== 'true') {
-        return c.json({ error: 'Weather disabled' }, 404);
-    }
-    const apiKey = c.env.WEATHER_API_KEY;
-    if (!apiKey) {
-        return c.json({ error: 'Weather not configured' }, 503);
-    }
-
-    const cacheKey = `${nLat.toFixed(1)},${nLon.toFixed(1)}`;
-    const nowTs = Date.now();
-    const cached = weatherCache.get(cacheKey);
-    if (cached && cached.expires > nowTs) return c.json(cached.data);
-
-    let data;
-    try {
-        data = await fetchQWeather(nLat, nLon, apiKey);
-    } catch {
-        return c.json({ error: 'Weather upstream error' }, 502);
-    }
-    weatherCache.set(cacheKey, { data, expires: nowTs + WEATHER_CACHE_TTL_MS });
-    // Opportunistic cleanup of expired entries
-    for (const [k, v] of weatherCache) {
-        if (v.expires <= nowTs) weatherCache.delete(k);
-    }
-    return c.json(data);
-});
-
-// ═══════════════════════════════════════════
-// HOT LIST API — 热榜聚合代理（实现见 hotlist.mjs）
-// ═══════════════════════════════════════════
-
-app.get('/api/hot/:source', async (c) => {
-    const source = c.req.param('source');
-    if (!HOT_SOURCES[source]) {
-        return c.json({ error: 'Unknown hot list source' }, 400);
-    }
-    try {
-        // store 注入 D1 持久层；defer 用 waitUntil 让后台 SWR 刷新在响应返回后跑完
-        return c.json(await getHotList(source, {
-            store: createHotStore(c.env.DB),
-            defer: (p) => c.executionCtx.waitUntil(p),
-        }));
-    } catch {
-        return c.json({ error: 'Hot list upstream error' }, 502);
-    }
-});
-
-// Admin: 六源热榜健康状态（只读持久层，不主动访问上游）
-app.get('/api/admin/hot-status', requireAuth, async (c) => {
-    return c.json(await getHotStatus(createHotStore(c.env.DB)));
-});
-
-// Admin: 强制刷新单一来源（绕过新鲜缓存并等待抓取结果；只触发该来源的上游请求）
-app.post('/api/admin/hot-status/:source/refresh', requireAuth, async (c) => {
-    const source = c.req.param('source');
-    if (!HOT_SOURCES[source]) {
-        return c.json({ error: 'Unknown hot list source' }, 400);
-    }
-    const store = createHotStore(c.env.DB);
-    try {
-        await getHotList(source, { store, forceRefresh: true });
-    } catch {
-        return c.json({ error: 'Hot list upstream error' }, 502);
-    }
-    const status = (await getHotStatus(store)).find(s => s.source === source);
-    return c.json(status);
 });
 
 // ═══════════════════════════════════════════
@@ -1380,7 +1201,8 @@ app.delete('/api/users/:id', requireAdmin, async (c) => {
 
 app.get('/api/export', requireAdmin, async (c) => {
     const db = c.env.DB;
-    const sites = (await db.prepare('SELECT * FROM sites').all()).results;
+    const SITE_COLUMNS = 'id, name, url, description, icon, category, sort_order, is_featured, click_count, nofollow, keywords, status, last_status, last_check_at, consecutive_failures, created_at, updated_at';
+    const sites = (await db.prepare(`SELECT ${SITE_COLUMNS} FROM sites`).all()).results;
     const siteTags = (await db.prepare('SELECT site_id, tag_id FROM site_tags').all()).results;
     const tagsBySite = {};
     for (const st of siteTags) {
@@ -1391,8 +1213,8 @@ app.get('/api/export', requireAdmin, async (c) => {
     const tags = (await db.prepare('SELECT * FROM tags').all()).results;
     const links = (await db.prepare('SELECT * FROM links').all()).results;
     const pages = (await db.prepare('SELECT * FROM pages').all()).results;
-    // Only publicly safe setting keys are exported — never secrets like
-    // weather_api_key. users/sessions/logs/stats details (IPs) are excluded.
+    // Only publicly safe setting keys are exported — never secrets.
+    // users/sessions/logs/stats details (IPs) are excluded.
     const settingsRows = (await db.prepare('SELECT key,value FROM settings').all()).results;
     const settings = {};
     for (const row of settingsRows) {
@@ -1400,7 +1222,8 @@ app.get('/api/export', requireAdmin, async (c) => {
     }
     const clickStats = (await db.prepare('SELECT site_id, COUNT(*) as clicks FROM stats GROUP BY site_id').all()).results;
     await logAction(c.env.DB, c.get('userId'), 'export', 'Database exported');
-    return c.json({ schemaVersion: 2, exportDate: new Date().toISOString(), sites, categories, tags, site_tags: siteTags, links, pages, settings, clickStats });
+    // Worker 图标以 data URI 存于库内（随 sites/links 导出），无独立图标文件。
+    return c.json({ schemaVersion: 2, exportDate: new Date().toISOString(), sites, categories, tags, site_tags: siteTags, links, pages, settings, icons: {}, clickStats });
 });
 
 const IMPORT_PAGE_ID_RE = /^[a-z0-9-]+$/;
@@ -1415,6 +1238,9 @@ function validateBackup(data) {
     }
     if (data.settings !== undefined && (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings))) {
         return 'settings must be an object';
+    }
+    if (data.icons !== undefined && (typeof data.icons !== 'object' || data.icons === null || Array.isArray(data.icons))) {
+        return 'icons must be an object';
     }
     const sites = data.sites || [];
     for (const s of sites) {
@@ -1455,10 +1281,10 @@ app.post('/api/import', requireAdmin, async (c) => {
     if (data.sites) {
         stmts.push(db.prepare('DELETE FROM sites'));
         for (const s of data.sites) {
-            stmts.push(db.prepare(`INSERT INTO sites (id,name,url,description,icon,screenshot,category,sort_order,is_featured,click_count,nofollow,seo_title,seo_description,keywords,status,last_status,last_check_at,consecutive_failures)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-                .bind(s.id, s.name, s.url, s.description||'', s.icon||'', s.screenshot||'', s.category,
-                    s.sort_order||0, s.is_featured||0, s.click_count||0, s.nofollow||0, s.seo_title||'', s.seo_description||'', s.keywords||'',
+            stmts.push(db.prepare(`INSERT INTO sites (id,name,url,description,icon,category,sort_order,is_featured,click_count,nofollow,keywords,status,last_status,last_check_at,consecutive_failures)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+                .bind(s.id, s.name, s.url, s.description||'', s.icon||'', s.category,
+                    s.sort_order||0, s.is_featured||0, s.click_count||0, s.nofollow||0, s.keywords||'',
                     s.status||'active', s.last_status||null, s.last_check_at||null, s.consecutive_failures||0));
         }
         counts.sites = data.sites.length;
@@ -1774,17 +1600,6 @@ app.get('/admin/:page', async (c) => {
     const page = raw.replace(/[^a-z0-9-]/gi, '');
     if (!page) return c.notFound();
     return fetchAsset(c, new URL(`/admin/${page}.html`, c.req.url));
-});
-
-// ═══════════════════════════════════════════
-// DYNAMIC PAGE ROUTING
-// ═══════════════════════════════════════════
-
-app.get('/p/:slug', async (c) => {
-    const slug = c.req.param('slug');
-    const page = await c.env.DB.prepare('SELECT id FROM pages WHERE id=?').bind(slug).first();
-    if (!page) return c.notFound();
-    return c.redirect(`/page.html?slug=${encodeURIComponent(slug)}`);
 });
 
 // ═══════════════════════════════════════════

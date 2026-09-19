@@ -532,19 +532,19 @@ test('reports: detail persisted; duplicate report (same site+IP within 24h) adds
 
 // The exact set of keys the public GET /api/settings endpoint may expose.
 const PUBLIC_SETTING_KEYS = [
-    'site_name', 'site_description', 'site_icon',
+    'site_name', 'site_description', 'site_icon', 'site_url',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'submission_enabled', 'weather_enabled',
+    'submission_enabled', 'home_config',
 ];
 
-test('settings: GET is public and exposes exactly the 10 whitelisted keys', async () => {
+test('settings: GET is public and exposes exactly the 11 whitelisted keys', async () => {
     const res = await api(ctx.baseUrl, 'GET', '/api/settings');
     assert.equal(res.status, 200);
     assert.equal(res.body.site_name, 'DogNav');
     assert.deepEqual(Object.keys(res.body).sort(), [...PUBLIC_SETTING_KEYS].sort(),
-        'public settings expose exactly the 10 whitelisted keys');
-    assert.ok(!('weather_api_key' in res.body), 'secret key not exposed publicly');
+        'public settings expose exactly the 11 whitelisted keys');
+    assert.ok(!('weather_api_key' in res.body), 'legacy secret key not exposed publicly');
     assert.ok(!('auto_nofollow' in res.body), 'removed key not exposed publicly');
 });
 
@@ -573,19 +573,22 @@ test('settings: PUT (deprecated alias) requires auth and marks the response depr
 test('admin settings: PUT as admin returns 200 and normalizes boolean values', async () => {
     const ok = await api(ctx.baseUrl, 'PUT', '/api/admin/settings', {
         token: adminToken,
-        body: { site_name: 'DogNav', weather_enabled: true },
+        body: { site_name: 'DogNav', submission_enabled: false },
     });
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.body, { message: 'Settings updated' });
 
     const pub = await api(ctx.baseUrl, 'GET', '/api/settings');
-    assert.equal(pub.body.weather_enabled, 'true', 'boolean normalized to string');
+    assert.equal(pub.body.submission_enabled, 'false', 'boolean normalized to string');
 
     const restore = await api(ctx.baseUrl, 'PUT', '/api/admin/settings', {
         token: adminToken,
-        body: { weather_enabled: false },
+        body: { submission_enabled: true },
     });
     assert.equal(restore.status, 200);
+
+    const pub2 = await api(ctx.baseUrl, 'GET', '/api/settings');
+    assert.equal(pub2.body.submission_enabled, 'true', 'restored to seeded default');
 });
 
 test('admin settings: PUT rejects keys outside the whitelist (incl. weather_api_key)', async () => {
@@ -595,40 +598,6 @@ test('admin settings: PUT rejects keys outside the whitelist (incl. weather_api_
     });
     assert.equal(res.status, 400);
     assert.equal(res.body.error, 'Invalid setting key: weather_api_key');
-});
-
-// ── Weather proxy ────────────────────────────────────────────────────────
-
-test('weather: invalid coordinates return 400 "Invalid coordinates"', async () => {
-    for (const body of [{ lat: 91, lon: 0 }, { lat: 0, lon: -181 }, { lat: 'abc', lon: 0 }, {}]) {
-        const res = await api(ctx.baseUrl, 'POST', '/api/weather', { body });
-        assert.equal(res.status, 400, `body ${JSON.stringify(body)}`);
-        assert.equal(res.body.error, 'Invalid coordinates');
-    }
-});
-
-test('weather: disabled by default returns 404 "Weather disabled"', async () => {
-    const res = await api(ctx.baseUrl, 'POST', '/api/weather', { body: { lat: 39.9, lon: 116.4 } });
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, 'Weather disabled');
-});
-
-test('weather: enabled but WEATHER_API_KEY unset returns 503 (helpers never set it)', async () => {
-    const enable = await api(ctx.baseUrl, 'PUT', '/api/admin/settings', {
-        token: adminToken,
-        body: { weather_enabled: true },
-    });
-    assert.equal(enable.status, 200);
-
-    const res = await api(ctx.baseUrl, 'POST', '/api/weather', { body: { lat: 39.9, lon: 116.4 } });
-    assert.equal(res.status, 503);
-    assert.equal(res.body.error, 'Weather not configured');
-
-    const disable = await api(ctx.baseUrl, 'PUT', '/api/admin/settings', {
-        token: adminToken,
-        body: { weather_enabled: false },
-    });
-    assert.equal(disable.status, 200);
 });
 
 // ── Users & roles ────────────────────────────────────────────────────────

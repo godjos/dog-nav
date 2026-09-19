@@ -9,7 +9,6 @@ const {
     extractLatestDeploymentId,
     createVerifier,
     shouldRollback,
-    HOT_SOURCES,
 } = require('../deploy.js');
 
 const SILENT = () => {};
@@ -93,21 +92,17 @@ function makeFetch(overrides = {}) {
         }
         if (u.endsWith('/')) return fakeResponse(200, '<!doctype html><title>DogNav</title>', 'text/html; charset=utf-8');
         if (u.endsWith('/api/settings')) return fakeResponse(200, { site_name: 'DogNav' });
-        if (u.endsWith('/api/hot/not-a-source')) return fakeResponse(400, { error: 'Unknown hot list source' });
-        const m = u.match(/\/api\/hot\/(\w+)$/);
-        if (m) return fakeResponse(200, { source: m[1], items: [1, 2, 3, 4, 5] });
         throw new Error(`unexpected url: ${u}`);
     };
 }
 
 function makeVerifier(fetchImpl) {
-    return createVerifier({ fetchImpl, retryDelayMs: 0, sources: HOT_SOURCES });
+    return createVerifier({ fetchImpl });
 }
 
-test('验证器: 全部通过时 coreFailures 与 sourceFailures 均为空', async () => {
+test('验证器: 全部通过时 coreFailures 为空', async () => {
     const result = await makeVerifier(makeFetch())('https://dognav.ccgg.workers.dev');
     assert.deepEqual(result.coreFailures, []);
-    assert.deepEqual(result.sourceFailures, {});
     assert.equal(shouldRollback(result), false);
 });
 
@@ -118,63 +113,10 @@ test('验证器: / 返回 500 → coreFailures 非空，判定应回滚', async 
     assert.equal(shouldRollback(result), true);
 });
 
-test('验证器: /api/hot/not-a-source 返回 200（而非 400）→ 核心失败', async () => {
+test('验证器: /api/settings 非 JSON → 核心失败', async () => {
     const result = await makeVerifier(makeFetch({
-        '/api/hot/not-a-source': fakeResponse(200, { source: 'not-a-source', items: [] }),
+        '/api/settings': fakeResponse(200, '<html>nope</html>', 'text/html'),
     }))('https://x.workers.dev');
-    assert.ok(result.coreFailures.some((f) => f.includes('not-a-source') && f.includes('400')));
+    assert.ok(result.coreFailures.some((f) => f.includes('/api/settings')));
     assert.equal(shouldRollback(result), true);
-});
-
-test('验证器: 单个外部源 502 → 只进 sourceFailures，不触发回滚', async () => {
-    const result = await makeVerifier(makeFetch({ '/api/hot/zhihu': fakeResponse(502, 'Bad Gateway') }))('https://x.workers.dev');
-    assert.deepEqual(result.coreFailures, []);
-    assert.equal(shouldRollback(result), false);
-    assert.deepEqual(Object.keys(result.sourceFailures), ['zhihu']);
-    assert.match(result.sourceFailures.zhihu, /502/);
-});
-
-test('验证器: 外部源 items 不足 5 条 → 判失败', async () => {
-    const result = await makeVerifier(makeFetch({
-        '/api/hot/weibo': fakeResponse(200, { source: 'weibo', items: [1, 2, 3] }),
-    }))('https://x.workers.dev');
-    assert.deepEqual(result.coreFailures, []);
-    assert.deepEqual(Object.keys(result.sourceFailures), ['weibo']);
-    assert.match(result.sourceFailures.weibo, /不足 5 条/);
-});
-
-test('验证器: source 字段与请求源不一致 → 判失败', async () => {
-    const result = await makeVerifier(makeFetch({
-        '/api/hot/36kr': fakeResponse(200, { source: 'sspai', items: [1, 2, 3, 4, 5] }),
-    }))('https://x.workers.dev');
-    assert.deepEqual(Object.keys(result.sourceFailures), ['36kr']);
-    assert.match(result.sourceFailures['36kr'], /source 字段不匹配/);
-});
-
-test('验证器: 失败的源重试三轮，第三轮恢复则判通过', async () => {
-    let calls = 0;
-    const fetchImpl = makeFetch({
-        '/api/hot/ithome': () => {
-            calls += 1;
-            if (calls < 3) return fakeResponse(502, 'Bad Gateway');
-            return fakeResponse(200, { source: 'ithome', items: [1, 2, 3, 4, 5] });
-        },
-    });
-    const result = await makeVerifier(fetchImpl)('https://x.workers.dev');
-    assert.equal(calls, 3, 'ithome 应被请求三轮');
-    assert.deepEqual(result.sourceFailures, {});
-});
-
-test('验证器: 重试间隔来自 retryDelayMs（sleepImpl 可注入）', async () => {
-    const delays = [];
-    const sleepImpl = async (ms) => { delays.push(ms); };
-    const verify = createVerifier({
-        fetchImpl: makeFetch({ '/api/hot/sspai': fakeResponse(503, 'nope') }),
-        retryDelayMs: 1234,
-        sources: ['sspai'],
-        sleepImpl,
-    });
-    const result = await verify('https://x.workers.dev');
-    assert.deepEqual(Object.keys(result.sourceFailures), ['sspai']);
-    assert.deepEqual(delays, [1234, 1234], '三轮共两次间隔');
 });

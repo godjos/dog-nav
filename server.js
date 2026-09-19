@@ -1,3 +1,5 @@
+const homeConfig = require('./public/js/home-config');
+const { validateSettingsUpdate } = require('./public/js/settings-schema');
 const express = require('express');
 const initSqlJs = require('sql.js');
 const path = require('path');
@@ -23,40 +25,6 @@ const {
     isPrivateHostSync,
     normalizeUrl,
 } = require('./lib/netutils');
-const { HOT_SOURCES, getHotList, getHotStatus } = require('./lib/hotlist');
-
-// 热榜持久层（sql.js）：接口契约见 lib/hotlist.js 顶部注释
-// row = { source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures }
-const hotStore = {
-    async read(source) {
-        const r = db.exec('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache WHERE source=?', [source]);
-        if (!r[0] || !r[0].values[0]) return null;
-        const [src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures] = r[0].values[0];
-        return { source: src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures };
-    },
-    async readAll() {
-        const r = db.exec('SELECT source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures FROM hot_cache');
-        return r[0] ? r[0].values.map(([src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures]) =>
-            ({ source: src, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures })) : [];
-    },
-    async writeSuccess(source, payload, nowIso) {
-        db.run(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
-                VALUES (?, ?, ?, ?, NULL, 0)
-                ON CONFLICT(source) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at,
-                    last_attempt_at=excluded.last_attempt_at, last_error_code=NULL, consecutive_failures=0`,
-            [source, payload, nowIso, nowIso]);
-        saveDb();
-    },
-    async writeFailure(source, errorCode, nowIso) {
-        db.run(`INSERT INTO hot_cache (source, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)
-                VALUES (?, NULL, NULL, ?, ?, 1)
-                ON CONFLICT(source) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,
-                    last_error_code=excluded.last_error_code, consecutive_failures=hot_cache.consecutive_failures+1`,
-            [source, nowIso, errorCode]);
-        saveDb();
-    },
-};
-
 let db;
 
 // Ensure upload directory exists
@@ -179,14 +147,11 @@ async function initDb() {
         url TEXT NOT NULL,
         description TEXT,
         icon TEXT,
-        screenshot TEXT,
         category TEXT NOT NULL,
         sort_order INTEGER DEFAULT 0,
         is_featured INTEGER DEFAULT 0,
         click_count INTEGER DEFAULT 0,
         nofollow INTEGER DEFAULT 0,
-        seo_title TEXT,
-        seo_description TEXT,
         keywords TEXT NOT NULL DEFAULT '',
         status TEXT DEFAULT 'active',
         last_status TEXT,
@@ -302,16 +267,6 @@ async function initDb() {
         clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // 热榜持久化缓存（实现见 lib/hotlist.js；与 cloudflare/schema.sql 保持一致）
-    db.run(`CREATE TABLE IF NOT EXISTS hot_cache (
-        source TEXT PRIMARY KEY,
-        payload TEXT,
-        updated_at TEXT,
-        last_attempt_at TEXT,
-        last_error_code TEXT,
-        consecutive_failures INTEGER DEFAULT 0
-    )`);
-
     // ═══════════════════════════════════════════
     // IDEMPOTENT MIGRATIONS (for databases created by older versions)
     // ═══════════════════════════════════════════
@@ -389,8 +344,6 @@ async function initDb() {
             ['site_name', 'DogNav'],
             ['site_description', '发现互联网的无限精彩'],
             ['site_icon', ''],
-            ['weather_api_key', ''],
-            ['weather_enabled', 'false'],
             ['footer_text', 'DogNav © 2026 — Design by CangDog'],
             ['footer_blog_url', 'https://www.cangdog.com'],
             ['footer_github_url', 'https://github.com/BYGD'],
@@ -581,7 +534,8 @@ app.get('/api/sites', (req, res) => {
     try {
         const sort = req.query.sort;
         const orderBy = sort === 'created' ? 'created_at DESC, id DESC' : 'sort_order, category, name';
-        const result = db.exec(`SELECT * FROM sites ORDER BY ${orderBy}`);
+        const SITE_COLUMNS = 'id, name, url, description, icon, category, sort_order, is_featured, click_count, nofollow, keywords, status, last_status, last_check_at, consecutive_failures, created_at, updated_at';
+        const result = db.exec(`SELECT ${SITE_COLUMNS} FROM sites ORDER BY ${orderBy}`);
         const tagsResult = db.exec(`SELECT st.site_id, t.id, t.name, t.color FROM site_tags st JOIN tags t ON t.id = st.tag_id ORDER BY t.name`);
         const tagsBySite = {};
         if (tagsResult[0]) {
@@ -603,16 +557,16 @@ app.get('/api/sites', (req, res) => {
 
 app.post('/api/sites', requireAuth, (req, res) => {
     try {
-        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords } = req.body;
+        const { name, url, description, icon, category, sort_order, is_featured, nofollow, keywords } = req.body;
         if (!name || !url || !category) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
         if (keywords !== undefined && (typeof keywords !== 'string' || keywords.length > 500)) {
             return res.status(400).json({ error: 'Invalid keywords' });
         }
-        const stmt = db.prepare(`INSERT INTO sites (name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, updated_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
-        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '', keywords || '']);
+        const stmt = db.prepare(`INSERT INTO sites (name, url, description, icon, category, sort_order, is_featured, nofollow, keywords, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+        stmt.run([name, url, description || '', icon || '', category, sort_order || 0, is_featured || 0, nofollow || 0, keywords || '']);
         stmt.free();
         // Read the rowid immediately after the insert — logAction()/saveDb()
         // run further statements that would clobber last_insert_rowid().
@@ -629,12 +583,12 @@ app.post('/api/sites', requireAuth, (req, res) => {
 
 app.put('/api/sites/:id', requireAuth, (req, res) => {
     try {
-        const { name, url, description, icon, screenshot, category, sort_order, is_featured, nofollow, seo_title, seo_description, keywords, status } = req.body;
+        const { name, url, description, icon, category, sort_order, is_featured, nofollow, keywords, status } = req.body;
         if (keywords !== undefined && (typeof keywords !== 'string' || keywords.length > 500)) {
             return res.status(400).json({ error: 'Invalid keywords' });
         }
-        const stmt = db.prepare(`UPDATE sites SET name=?, url=?, description=?, icon=?, screenshot=?, category=?, sort_order=?, is_featured=?, nofollow=?, seo_title=?, seo_description=?, keywords=?, status=?, updated_at=datetime('now') WHERE id=?`);
-        stmt.run([name, url, description || '', icon || '', screenshot || '', category, sort_order || 0, is_featured || 0, nofollow || 0, seo_title || '', seo_description || '', keywords || '', status || 'active', req.params.id]);
+        const stmt = db.prepare(`UPDATE sites SET name=?, url=?, description=?, icon=?, category=?, sort_order=?, is_featured=?, nofollow=?, keywords=?, status=?, updated_at=datetime('now') WHERE id=?`);
+        stmt.run([name, url, description || '', icon || '', category, sort_order || 0, is_featured || 0, nofollow || 0, keywords || '', status || 'active', req.params.id]);
         stmt.free();
         logAction(req.userId, 'update_site', `Updated site ID: ${req.params.id}`);
         saveDb();
@@ -659,8 +613,8 @@ app.delete('/api/sites/:id', requireAuth, (req, res) => {
 
 // Batch operations
 const BATCH_UPDATE_FIELDS = new Set([
-    'name', 'url', 'description', 'icon', 'screenshot', 'category',
-    'sort_order', 'is_featured', 'nofollow', 'seo_title', 'seo_description', 'keywords', 'status',
+    'name', 'url', 'description', 'icon', 'category',
+    'sort_order', 'is_featured', 'nofollow', 'keywords', 'status',
 ]);
 app.post('/api/sites/batch', requireAuth, (req, res) => {
     try {
@@ -900,17 +854,27 @@ app.get('/api/export', requireAdmin, (req, res) => {
                 return obj;
             }) : [];
         };
-        const sites = query("SELECT * FROM sites");
+        const SITE_COLUMNS = 'id, name, url, description, icon, category, sort_order, is_featured, click_count, nofollow, keywords, status, last_status, last_check_at, consecutive_failures, created_at, updated_at';
+        const sites = query(`SELECT ${SITE_COLUMNS} FROM sites`);
         const siteTags = query("SELECT site_id, tag_id FROM site_tags");
         const tagsBySite = {};
         siteTags.forEach(st => { (tagsBySite[st.site_id] = tagsBySite[st.site_id] || []).push(st.tag_id); });
         sites.forEach(s => { s.tags = tagsBySite[s.id] || []; });
-        // Only publicly safe setting keys are exported — never secrets like
-        // weather_api_key. users/sessions/logs/stats details (IPs) are excluded.
+        // Only publicly safe setting keys are exported — never secrets.
+        // users/sessions/logs/stats details (IPs) are excluded.
         const settings = {};
         query("SELECT key, value FROM settings").forEach(({ key, value }) => {
             if (PUBLIC_SETTING_KEYS.has(key)) settings[key] = value;
         });
+        // 本地图标文件（Express 部署的 uploads/icons）一并打包进备份，
+        // Worker 部署的图标以 data URI 存于库内，icons 为空对象。
+        const icons = {};
+        try {
+            for (const name of fs.readdirSync(ICON_DIR)) {
+                if (!/^[a-zA-Z0-9._-]+$/.test(name) || name.startsWith('.')) continue;
+                icons[name] = fs.readFileSync(path.join(ICON_DIR, name)).toString('base64');
+            }
+        } catch { /* 图标目录不可读时忽略，不影响主备份 */ }
         const data = {
             schemaVersion: 2,
             exportDate: new Date().toISOString(),
@@ -921,6 +885,7 @@ app.get('/api/export', requireAdmin, (req, res) => {
             links: query("SELECT * FROM links"),
             pages: query("SELECT * FROM pages"),
             settings,
+            icons,
             clickStats: query("SELECT site_id, COUNT(*) as clicks FROM stats GROUP BY site_id"),
         };
         logAction(req.userId, 'export', 'Database exported');
@@ -943,6 +908,9 @@ function validateBackup(data) {
     }
     if (data.settings !== undefined && (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings))) {
         return 'settings must be an object';
+    }
+    if (data.icons !== undefined && (typeof data.icons !== 'object' || data.icons === null || Array.isArray(data.icons))) {
+        return 'icons must be an object';
     }
     const sites = data.sites || [];
     for (const s of sites) {
@@ -982,10 +950,10 @@ app.post('/api/import', requireAdmin, (req, res) => {
             db.run("BEGIN");
             if (data.sites) {
                 db.run("DELETE FROM sites");
-                const stmt = db.prepare(`INSERT INTO sites (id, name, url, description, icon, screenshot, category, sort_order, is_featured, click_count, nofollow, seo_title, seo_description, keywords, status, last_status, last_check_at, consecutive_failures)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-                data.sites.forEach(s => stmt.run([s.id, s.name, s.url, s.description || '', s.icon || '', s.screenshot || '', s.category,
-                    s.sort_order || 0, s.is_featured || 0, s.click_count || 0, s.nofollow || 0, s.seo_title || '', s.seo_description || '', s.keywords || '',
+                const stmt = db.prepare(`INSERT INTO sites (id, name, url, description, icon, category, sort_order, is_featured, click_count, nofollow, keywords, status, last_status, last_check_at, consecutive_failures)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                data.sites.forEach(s => stmt.run([s.id, s.name, s.url, s.description || '', s.icon || '', s.category,
+                    s.sort_order || 0, s.is_featured || 0, s.click_count || 0, s.nofollow || 0, s.keywords || '',
                     s.status || 'active', s.last_status || null, s.last_check_at || null, s.consecutive_failures || 0]));
                 stmt.free();
                 counts.sites = data.sites.length;
@@ -1035,9 +1003,24 @@ app.post('/api/import', requireAdmin, (req, res) => {
             return res.status(500).json({ error: 'Import failed, rolled back' });
         }
 
+        // 图标文件写入在事务外进行：文件系统不可回滚，单文件失败不影响数据导入。
+        // Worker 部署无文件系统，忽略 icons 字段（其图标以 data URI 存于库内）。
+        let iconsRestored = 0;
+        if (data.icons && typeof data.icons === 'object' && !Array.isArray(data.icons)) {
+            try {
+                if (!fs.existsSync(ICON_DIR)) fs.mkdirSync(ICON_DIR, { recursive: true });
+                for (const [name, base64] of Object.entries(data.icons)) {
+                    if (!/^[a-zA-Z0-9._-]+$/.test(name) || name.startsWith('.')) continue;
+                    if (typeof base64 !== 'string' || base64.length > 2 * 1024 * 1024) continue;
+                    fs.writeFileSync(path.join(ICON_DIR, name), Buffer.from(base64, 'base64'));
+                    iconsRestored++;
+                }
+            } catch { /* 图标恢复失败不阻断导入结果 */ }
+        }
+
         logAction(req.userId, 'import', 'Database imported');
         saveDb();
-        res.json({ message: 'Import completed', counts, skippedSettings });
+        res.json({ message: 'Import completed', counts, skippedSettings, iconsRestored });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });
@@ -1495,46 +1478,29 @@ app.get('/api/logs', requireAdmin, (req, res) => {
 // SETTINGS API
 // ═══════════════════════════════════════════
 
-// Settings keys safe to expose publicly. Anything else (e.g. weather_api_key)
-// is only available through the authenticated /api/admin/settings endpoint.
+// Settings keys safe to expose publicly. Anything else is only available
+// through the authenticated /api/admin/settings endpoint.
 const PUBLIC_SETTING_KEYS = new Set([
     'site_name', 'site_description', 'site_icon',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'submission_enabled', 'weather_enabled',
+    'submission_enabled', 'home_config', 'site_url',
 ]);
 
 // Keys writable through PUT /api/admin/settings (and the deprecated
-// PUT /api/settings). weather_api_key is intentionally absent — the
-// weather API key comes from the WEATHER_API_KEY environment variable.
+// PUT /api/settings).
 const WRITABLE_SETTING_KEYS = new Set([
     'site_name', 'site_description', 'site_icon',
     'footer_text', 'footer_blog_url', 'footer_github_url',
     'theme_primary_color', 'theme_secondary_color',
-    'weather_enabled', 'submission_enabled',
+    'submission_enabled', 'home_config', 'site_url',
 ]);
 
-// Boolean-valued settings: accept 'true'/'false' or real booleans,
-// always stored as the strings 'true'/'false'.
-const BOOL_SETTING_KEYS = new Set(['weather_enabled', 'submission_enabled']);
-
-function normalizeSettingValue(key, value) {
-    if (BOOL_SETTING_KEYS.has(key)) {
-        return (value === true || value === 'true') ? 'true' : 'false';
-    }
-    return String(value);
-}
-
-// Shared handler for PUT /api/admin/settings and deprecated PUT /api/settings.
-// Returns an error message on the first non-whitelisted key, or null.
+// Validate every field before changing any stored value.
 function applySettingsUpdate(body, userId) {
-    const entries = Object.entries(body || {});
-    for (const [key] of entries) {
-        if (!WRITABLE_SETTING_KEYS.has(key)) {
-            return `Invalid setting key: ${key}`;
-        }
-    }
-    entries.forEach(([key, value]) => setSetting(key, normalizeSettingValue(key, value)));
+    const result = validateSettingsUpdate(body);
+    if (result.error) return { error: result.error, field: result.field };
+    Object.entries(result.values).forEach(([key, value]) => setSetting(key, value));
     logAction(userId, 'update_settings', 'Settings updated');
     saveDb();
     return null;
@@ -1542,7 +1508,7 @@ function applySettingsUpdate(body, userId) {
 
 function getAllSettings() {
     const result = db.exec("SELECT key, value FROM settings");
-    const settings = {};
+    const settings = { home_config: JSON.stringify(homeConfig.DEFAULTS), site_url: '' };
     if (result[0]) {
         result[0].values.forEach(([key, value]) => settings[key] = value);
     }
@@ -1576,7 +1542,7 @@ app.get('/api/admin/settings', requireAdmin, (req, res) => {
 app.put('/api/admin/settings', requireAdmin, (req, res) => {
     try {
         const err = applySettingsUpdate(req.body, req.userId);
-        if (err) return res.status(400).json({ error: err });
+        if (err) return res.status(400).json(err);
         res.json({ message: 'Settings updated' });
     } catch (err) {
         console.error(err);
@@ -1588,153 +1554,10 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
 app.put('/api/settings', requireAdmin, (req, res) => {
     try {
         const err = applySettingsUpdate(req.body, req.userId);
-        if (err) return res.status(400).json({ error: err });
+        if (err) return res.status(400).json(err);
         res.set('Deprecation', 'true');
         res.set('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT');
         res.json({ message: 'Settings updated', deprecated: true });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// ═══════════════════════════════════════════
-// WEATHER PROXY API
-// ═══════════════════════════════════════════
-
-// In-memory cache of successful weather responses, keyed by coordinates
-// rounded to 0.1°, with a 10 minute TTL. Failures are never cached.
-const weatherCache = new Map(); // key -> { data, expires }
-const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
-
-// Fetch current weather from QWeather; throws on any upstream failure.
-async function fetchQWeather(lat, lon, apiKey) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-        const resp = await fetch(
-            `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}&key=${apiKey}`,
-            { signal: controller.signal });
-        if (!resp.ok) throw new Error(`upstream status ${resp.status}`);
-        const data = await resp.json();
-        if (data.code !== '200') throw new Error(`upstream code ${data.code}`);
-        const now = data.now;
-
-        // Best-effort city name lookup; failure leaves city as null.
-        let city = null;
-        try {
-            const cResp = await fetch(
-                `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}&key=${apiKey}&number=1`,
-                { signal: controller.signal });
-            if (cResp.ok) {
-                const cData = await cResp.json();
-                if (cData.code === '200' && cData.location && cData.location[0]) {
-                    city = cData.location[0].name;
-                }
-            }
-        } catch { /* city stays null */ }
-
-        return {
-            temp: Number(now.temp),
-            feelsLike: Number(now.feelsLike),
-            text: now.text,
-            icon: now.icon,
-            humidity: Number(now.humidity),
-            windDir: now.windDir,
-            windScale: Number(now.windScale),
-            updateTime: now.updateTime,
-            city,
-        };
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-app.post('/api/weather', async (req, res) => {
-    try {
-        const { lat, lon } = req.body || {};
-        const nLat = Number(lat);
-        const nLon = Number(lon);
-        if (!Number.isFinite(nLat) || !Number.isFinite(nLon) ||
-            nLat < -90 || nLat > 90 || nLon < -180 || nLon > 180) {
-            return res.status(400).json({ error: 'Invalid coordinates' });
-        }
-        if (getSetting('weather_enabled') !== 'true') {
-            return res.status(404).json({ error: 'Weather disabled' });
-        }
-        const apiKey = process.env.WEATHER_API_KEY;
-        if (!apiKey) {
-            return res.status(503).json({ error: 'Weather not configured' });
-        }
-
-        const cacheKey = `${nLat.toFixed(1)},${nLon.toFixed(1)}`;
-        const nowTs = Date.now();
-        const cached = weatherCache.get(cacheKey);
-        if (cached && cached.expires > nowTs) return res.json(cached.data);
-
-        let data;
-        try {
-            data = await fetchQWeather(nLat, nLon, apiKey);
-        } catch {
-            return res.status(502).json({ error: 'Weather upstream error' });
-        }
-        weatherCache.set(cacheKey, { data, expires: nowTs + WEATHER_CACHE_TTL_MS });
-        // Opportunistic cleanup of expired entries
-        for (const [k, v] of weatherCache) {
-            if (v.expires <= nowTs) weatherCache.delete(k);
-        }
-        res.json(data);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// ═══════════════════════════════════════════
-// HOT LIST API — 热榜聚合代理（实现见 lib/hotlist.js）
-// ═══════════════════════════════════════════
-
-app.get('/api/hot/:source', async (req, res) => {
-    try {
-        const source = String(req.params.source || '');
-        if (!HOT_SOURCES[source]) {
-            return res.status(400).json({ error: 'Unknown hot list source' });
-        }
-        try {
-            res.json(await getHotList(source, { store: hotStore }));
-        } catch {
-            res.status(502).json({ error: 'Hot list upstream error' });
-        }
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Admin: 六源热榜健康状态（只读持久层，不主动访问上游）
-app.get('/api/admin/hot-status', requireAuth, async (req, res) => {
-    try {
-        res.json(await getHotStatus(hotStore));
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Admin: 强制刷新单一来源（绕过新鲜缓存并等待抓取结果；只触发该来源的上游请求）
-app.post('/api/admin/hot-status/:source/refresh', requireAuth, async (req, res) => {
-    try {
-        const source = String(req.params.source || '');
-        if (!HOT_SOURCES[source]) {
-            return res.status(400).json({ error: 'Unknown hot list source' });
-        }
-        try {
-            await getHotList(source, { store: hotStore, forceRefresh: true });
-        } catch {
-            return res.status(502).json({ error: 'Hot list upstream error' });
-        }
-        const status = (await getHotStatus(hotStore)).find(s => s.source === source);
-        res.json(status);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });

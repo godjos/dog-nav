@@ -18,9 +18,6 @@ async function startTestServer() {
     process.env.DB_PATH = path.join(tmpDir, 'test.db');
     process.env.UPLOAD_DIR = path.join(tmpDir, 'uploads');
     process.env.INITIAL_ADMIN_PASSWORD = TEST_ADMIN_PASSWORD;
-    // POST /api/weather must hit its 503 "Weather not configured" branch;
-    // never let an ambient WEATHER_API_KEY leak into the test server.
-    delete process.env.WEATHER_API_KEY;
 
     const { start } = require('../server.js');
     const server = await start(0);

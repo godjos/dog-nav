@@ -198,8 +198,8 @@ npm run deploy:cf
 1. **部署前门禁**：先跑 `npm test` 和双运行时契约测试（`CONTRACT_TARGET=both npm run test:contract`），失败即终止。
 2. **自动准备**：检查认证（未登录时引导 `wrangler login`）→ 创建/发现 D1 数据库 → 同步两个 `wrangler.toml` 的 `database_id` → 记录部署前当前版本 id。
 3. **部署上线**：`wrangler deploy`，并从输出中解析真实的 `workers.dev` 地址（可用环境变量 `DEPLOY_VERIFY_URL` 覆盖）。
-4. **部署后验证**：对真实地址发 HTTP 请求做核心冒烟（首页 200/HTML、`/api/settings` 为 JSON 对象、未知热榜源返回 400）和六个外部热榜源检查（zhihu、weibo、bilibili、ithome、36kr、sspai，失败的源自动重试三轮）。
-5. **自动回滚**：核心冒烟任一失败，立即 `npx wrangler rollback <部署前版本>` 回滚并以非零退出；外部源失败则只报诊断、不回滚。
+4. **部署后验证**：对真实地址发 HTTP 请求做核心冒烟（首页 200/HTML、`/api/settings` 为 JSON 对象）。
+5. **自动回滚**：核心冒烟任一失败，立即 `npx wrangler rollback <部署前版本>` 回滚并以非零退出。
 
 **首次访问站点时，Worker 会自动创建所有数据库表并写入默认数据**（管理员账号、10 个分类、默认页面等），无需手动执行 SQL。
 
@@ -261,7 +261,7 @@ npx wrangler deploy
 | 📝 **操作日志** | 管理员操作审计记录 |
 | 👥 **用户管理** | 管理管理员账号和权限 |
 | 💾 **备份恢复** | 导出和导入数据库备份 |
-| ⚙️ **系统设置** | 站点名称、描述、自定义图标、天气组件 |
+| ⚙️ **系统设置** | 站点名称、描述、自定义图标、主题色、投稿开关 |
 
 ---
 

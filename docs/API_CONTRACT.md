@@ -327,70 +327,30 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ## 11. Settings
 
-公开白名单键（两端一致，恰好 10 个）：`site_name, site_description, site_icon, footer_text, footer_blog_url, footer_github_url, theme_primary_color, theme_secondary_color, submission_enabled, weather_enabled`（`PUBLIC_SETTING_KEYS`，`E:1149-1154` / `W:537-542`）。`auto_nofollow` 已从白名单与播种中移除；`weather_api_key` 永不公开（真实天气 key 来自 `WEATHER_API_KEY` 环境变量，不入库）。
+公开白名单键（两端一致，恰好 11 个）：`site_name, site_description, site_icon, site_url, footer_text, footer_blog_url, footer_github_url, theme_primary_color, theme_secondary_color, submission_enabled, home_config`（`PUBLIC_SETTING_KEYS`）。`auto_nofollow`、`weather_enabled`、`weather_api_key` 均已随天气/热榜功能下线而从白名单与播种中移除。`home_config` 为首页配置 JSON 字符串（schema 见 `public/js/home-config.js`：`category_ids/category_limit/pinned_ids/show_recent/show_favorites/show_health/show_read_later/default_engine/engines`，前后台共享校验）；`site_url` 为站点根地址（http/https  origin，用于 canonical/og:url）。
 
-可写白名单键（两端一致，同样 10 个，`WRITABLE_SETTING_KEYS`，`E:1159-1164` / `W:547-552`）：与公开白名单相同。`weather_enabled`/`submission_enabled` 为布尔键，接受 `true/false` 布尔或字符串，统一归一化为字符串 `'true'/'false'`（`E:1168-1175` / `W:556-563`）。
+可写白名单键（两端一致，同样 11 个，`WRITABLE_SETTING_KEYS`）：与公开白名单相同。`submission_enabled` 为布尔键，接受 `true/false` 布尔或字符串，统一归一化为字符串 `'true'/'false'`。所有写接口在写入前对整个 body 做值校验（共享 `public/js/settings-schema.js`：类型/长度/URL 协议/颜色格式/site_url 归一化/home_config JSON），任一字段非法整体拒绝并返回 `400 {"error":<原因>,"field":<字段名>}`（两端一致）。
 
 | 端点 | 鉴权 | 请求体 | 成功 | 错误 | Express | Worker |
 |---|---|---|---|---|---|---|
-| GET /api/settings | 公开 | — | `200 {<10 个白名单键>:<值>}`（恰好 10 键，无 `weather_api_key`、无 `auto_nofollow`） | — | E:1201-1212 | W:582-589 |
-| GET /api/admin/settings | **requireAdmin** | — | `200 {<全部键>:<值>,...}`（含 `weather_api_key` 等敏感键） | `401`/`403` | E:1215-1221 | W:592-597 |
-| PUT /api/admin/settings | **requireAdmin** | `{key:value,...}`，键须全部在可写白名单内 | `200 {"message":"Settings updated"}` | `400 {"error":"Invalid setting key: <key>"}`（含 `weather_api_key` 在内的白名单外键）；`401`/`403` | E:1223-1231 | W:599-604 |
+| GET /api/settings | 公开 | — | `200 {<11 个白名单键>:<值>}`（恰好 11 键，无敏感键） | — | E:1201-1212 | W:582-589 |
+| GET /api/admin/settings | **requireAdmin** | — | `200 {<全部键>:<值>,...}` | `401`/`403` | E:1215-1221 | W:592-597 |
+| PUT /api/admin/settings | **requireAdmin** | `{key:value,...}`，键须全部在可写白名单内 | `200 {"message":"Settings updated"}` | `400 {"error":"Invalid setting key: <key>"}`（白名单外键）；`400 {"error":<原因>,"field":<字段>}`（值校验失败）；`401`/`403` | E:1223-1231 | W:599-604 |
 | PUT /api/settings（**已废弃**，PUT /api/admin/settings 的兼容别名） | **requireAdmin** | 同上 | `200 {"message":"Settings updated","deprecated":true}`，响应头带 `Deprecation: true` 与 `Sunset: Sat, 01 Jan 2028 00:00:00 GMT` | 同上（400 校验先于废弃标记，400 响应不带 Deprecation/Sunset 头） | E:1234-1244 | W:607-614 |
 
-两个 PUT 共用一个校验/写入实现（`applySettingsUpdate`，`E:1179-1190` / `W:567-580`）：先校验全部键名再写入，任一非法键整体拒绝；记日志 `update_settings`。
+两个 PUT 共用一个校验/写入实现（`applySettingsUpdate`）：先校验全部键名，再统一做值校验，任一非法字段整体拒绝（field 定位）；记日志 `update_settings`。
 
 ---
 
 ## 12. Weather（天气代理）
 
-### POST /api/weather — 实时天气（和风天气代理）
-
-`E:1298-1335` / `W:668-703`
-
-| 项 | 内容 |
-|---|---|
-| 鉴权 | 公开，无限流 |
-| 请求体 | `lat`、`lon`（必填，数字；有限且 `-90≤lat≤90`、`-180≤lon≤180`） |
-| 成功 | `200 {"temp":<num>,"feelsLike":<num>,"text":"<str>","icon":"<str>","humidity":<num>,"windDir":"<str>","windScale":<num>,"updateTime":"<str>","city":"<str>"\|null}` |
-| 错误 | `400 {"error":"Invalid coordinates"}`（坐标缺失/非有限数字/越界，最先校验）；`404 {"error":"Weather disabled"}`（`weather_enabled!=='true'`，默认播种 `'false'`）；`503 {"error":"Weather not configured"}`（`WEATHER_API_KEY` 环境变量未配置）；`502 {"error":"Weather upstream error"}`（上游请求失败/非 200/业务码非 `'200'`，8s 超时） |
-| 缓存 | 成功响应按 0.1° 网格（`lat.toFixed(1),lon.toFixed(1)`）内存缓存 10 分钟；失败不缓存；Worker 缓存为 per-isolate（同登录限流，见 S9） |
-| 上游 | `devapi.qweather.com/v7/weather/now`；城市名为 best-effort 附加查询（`geoapi.qweather.com/v2/city/lookup`），失败时 `city` 为 `null` 不影响主响应 |
+**已下线（2026-09）**：天气代理与热榜聚合功能随首页工作台重构整体移除，`POST /api/weather`、六源热榜路由（`/api/hot/:source`、`/api/admin/hot-status`、`/api/admin/hot-status/:source/refresh`）在两端均已不存在，相关设置键（`weather_enabled`/`weather_api_key`）、`hot_cache` 表、`lib/hotlist.js`/`cloudflare/src/hotlist.mjs` 与对应测试一并删除。本节与 §12a 仅作历史留档。
 
 ---
 
 ## 12a. Hot List（热榜聚合）
 
-### GET /api/hot/:source — 平台热榜代理
-
-`E:~1645-1670`（实现 `lib/hotlist.js`）/ `W:~861-878`（实现 `cloudflare/src/hotlist.mjs`）
-
-| 项 | 内容 |
-|---|---|
-| 鉴权 | 公开，无限流（服务端缓存兜底） |
-| 路径参数 | `source` ∈ `zhihu`（知乎热榜）、`weibo`（微博热搜）、`bilibili`（B站热榜）、`ithome`（IT之家）、`36kr`（36氪）、`sspai`（少数派），白名单外一律 `400 {"error":"Unknown hot list source"}` |
-| 成功 | `200 {"source":"<str>","name":"<str>","items":[{"title":"<str>","url":"<str>","hot":<num\|str>},...],"updated":"<ISO>","stale"?:true}`；items ≤30 条；`hot` 知乎为文案（如 "1234 万热度"）其余为数字；`stale:true` 表示返回的是 10 分钟至 24 小时内的过期缓存（后台已触发一次合并刷新） |
-| 错误 | `502 {"error":"Hot list upstream error"}`（缓存超过 24 小时或从未成功且实时抓取失败；不展示更旧热点） |
-| 缓存 | 持久化 SWR（Express sql.js / Worker D1，表 `hot_cache(source PK, payload, updated_at, last_attempt_at, last_error_code, consecutive_failures)`）：10 分钟内直接返回新鲜缓存；10 分钟至 24 小时立即返回 `stale:true` 并后台合并刷新一次；超过 24 小时或从未成功则等待实时抓取；成功持久化并清零失败数，失败仅记录标准错误码（`HTTP_<status>`/`TIMEOUT`/`NETWORK`/`INVALID_PAYLOAD`），不保存原始响应；持久化 JSON 使用前重新验证来源/条目数/标题/HTTP(S) URL，损坏视为不存在；同一进程/isolate 内并发请求合并为一次上游抓取 |
-| 上游 | 固定白名单域名（zhihu.com/weibo.com/bilibili.com/ithome.com/36kr.com/sspai.com），不接受用户传入 URL，无 SSRF 面；8s 超时；网络错误及 408/425/429/5xx 最多重试 1 次，其他 4xx 不重试；返回 <5 条视为风控页按失败处理。知乎使用 `/api/v3/feed/topstory/hot-list-web` JSON 接口，不再解析会对服务器 IP 返回 403 的 `/billboard` HTML |
-| 测试说明 | 双运行时契约测试锁定未知源 400；`test/hotlist.test.js` 以模拟上游覆盖知乎 JSON 解析、瞬时错误重试、确定性 403 不重试、并发请求合并、新鲜/10 分钟/24 小时边界、冷启动持久层回退、损坏缓存、失败计数与清零、强制刷新及后台刷新合并；真实上游的 200/502 分支仍不进契约用例表 |
-
-### GET /api/admin/hot-status — 六源热榜健康状态（管理后台）
-
-| 项 | 内容 |
-|---|---|
-| 鉴权 | Bearer（requireAuth）；无 token 401 |
-| 成功 | `200 [{source,name,status,updated,lastAttempt,consecutiveFailures,lastErrorCode}]`，固定 6 元素；`status` ∈ `fresh`（≤10 分钟）\|`stale`（≤24 小时）\|`unavailable`（>24 小时或无可用缓存）\|`never`（从未成功）；`updated`/`lastAttempt` 为 ISO 或 null |
-| 副作用 | 无——只读持久层，绝不主动访问上游 |
-
-### POST /api/admin/hot-status/:source/refresh — 强制刷新单一来源
-
-| 项 | 内容 |
-|---|---|
-| 鉴权 | Bearer（requireAuth）；无 token 401 |
-| 路径参数 | 同 `/api/hot/:source` 白名单，白名单外 `400 {"error":"Unknown hot list source"}` |
-| 成功 | `200` + 该来源的最新状态对象（字段同上）；绕过新鲜缓存并等待抓取结果，只触发该来源的上游请求 |
-| 错误 | `502 {"error":"Hot list upstream error"}`（实时抓取失败；失败计数与错误码已写入持久层） |
+**已下线（2026-09）**：见 §12。原热榜代理、热榜健康状态与强制刷新接口均已移除。
 
 ---
 
@@ -432,8 +392,8 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | 项 | 内容 |
 |---|---|
 | 鉴权 | **requireAdmin**（原 requireAuth，editor 已不可导出，S6 已修复） |
-| 成功 | `200 {"schemaVersion":2,"exportDate":"<ISO>","sites":[...],"categories":[...],"tags":[...],"site_tags":[...],"links":[...],"pages":[...],"settings":{...},"clickStats":[...]}`（两端字段完全一致，原 D10 已消除） |
-| 备注 | 每个 site 追加 `tags` 字段（tag_id 数组，来自 `site_tags`）；`site_tags` 为 `{site_id,tag_id}` 全量关联；`clickStats` 为 `{site_id,clicks}` 聚合（`stats` 表按 site_id GROUP BY）；**`settings` 只导出 10 个公开白名单键**（`PUBLIC_SETTING_KEYS`，见 §11），绝不含 `weather_api_key` 等敏感键；`users`/`sessions`/`logs`/`stats` 明细（IP）一律不导出；记日志 `export` |
+| 成功 | `200 {"schemaVersion":2,"exportDate":"<ISO>","sites":[...],"categories":[...],"tags":[...],"site_tags":[...],"links":[...],"pages":[...],"settings":{...},"icons":{...},"clickStats":[...]}`（两端字段一致；`icons` 见 D23） |
+| 备注 | 每个 site 追加 `tags` 字段（tag_id 数组，来自 `site_tags`）；`site_tags` 为 `{site_id,tag_id}` 全量关联；`clickStats` 为 `{site_id,clicks}` 聚合（`stats` 表按 site_id GROUP BY）；**`settings` 只导出 11 个公开白名单键**（`PUBLIC_SETTING_KEYS`，见 §11），绝不含敏感键；`users`/`sessions`/`logs`/`stats` 明细（IP）一律不导出；记日志 `export` |
 
 ### POST /api/import — 导入数据
 
@@ -442,10 +402,10 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAdmin |
-| 请求体 | `{schemaVersion?, sites?, categories?, tags?, site_tags?, links?, pages?, settings?, clickStats?}`（两端一致，原 D11 已消除；`clickStats` 仅参与格式校验，导入时忽略、不回写） |
-| 校验层 | 任何写库**之前**先过 `validateBackup`，发现第一个问题即 `400 {"error":"Invalid backup: <原因>"}`：顶层必须是对象；`schemaVersion` 提供时必须为 `2`；各数组键必须是数组；`settings` 必须是对象；每个 site 须含 `name,url,category`；`site_tags` 的 `site_id`/`tag_id` 必须能在本次备份的 `sites`/`tags` 中找到；page `id` 须匹配 `/^[a-z0-9-]+$/` |
-| 行为 | 每个出现的数组：先 `DELETE FROM <表>` 再逐条插入（sites 导入 17 列含 `status/last_status/consecutive_failures` 等；pages 的 `status` 非 `'draft'/'published'` 时归一化为 `'published'`）；`settings` **只导入 10 个公开白名单键**，白名单外键被跳过并计入 `skippedSettings` |
-| 成功 | `200 {"message":"Import completed","counts":{"sites":<int>,"categories":<int>,"tags":<int>,"links":<int>,"pages":<int>},"skippedSettings":<int>}`，记日志 `import` |
+| 请求体 | `{schemaVersion?, sites?, categories?, tags?, site_tags?, links?, pages?, settings?, icons?, clickStats?}`（两端一致，原 D11 已消除；`clickStats` 仅参与格式校验，导入时忽略、不回写；`icons` 见 D23） |
+| 校验层 | 任何写库**之前**先过 `validateBackup`，发现第一个问题即 `400 {"error":"Invalid backup: <原因>"}`：顶层必须是对象；`schemaVersion` 提供时必须为 `2`；各数组键必须是数组；`settings`/`icons` 必须是对象；每个 site 须含 `name,url,category`；`site_tags` 的 `site_id`/`tag_id` 必须能在本次备份的 `sites`/`tags` 中找到；page `id` 须匹配 `/^[a-z0-9-]+$/` |
+| 行为 | 每个出现的数组：先 `DELETE FROM <表>` 再逐条插入（sites 导入 17 列含 `status/last_status/consecutive_failures` 等；pages 的 `status` 非 `'draft'/'published'` 时归一化为 `'published'`）；`settings` **只导入 11 个公开白名单键**，白名单外键被跳过并计入 `skippedSettings`；`icons` 图标文件恢复在事务提交后进行（Express 写回 `uploads/icons`，文件名白名单校验，单文件 ≤2MB 基64，失败不阻断；Worker 无文件系统，忽略该字段，其图标以 data URI 存于库内随 sites/links 导入） |
+| 成功 | `200 {"message":"Import completed","counts":{"sites":<int>,"categories":<int>,"tags":<int>,"links":<int>,"pages":<int>},"skippedSettings":<int>,"iconsRestored":<int>}`（`iconsRestored` 为 Express 恢复的图标文件数，Worker 恒为 0；原返回仅 `message/counts/skippedSettings`，本次追加字段保持向后兼容），记日志 `import` |
 | 错误 | `400 {"error":"Invalid backup: <原因>"}`（校验层）；写库中途失败 → `500 {"error":"Import failed, rolled back"}`（Express 用 `BEGIN/COMMIT/ROLLBACK` 事务，Worker 用原子 `db.batch`，两端均整体回滚） |
 
 ### POST /api/import/bookmarks — 浏览器书签导入
@@ -455,7 +415,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | 项 | 内容 |
 |---|---|
 | 鉴权 | requireAdmin |
-| 请求体 | 浏览器书签 JSON（数组 / 含 `roots` 的对象 / 单节点），递归解析文件夹为分类 |
+| 请求体 | 书签树（数组 / 含 `roots` 的对象 / 单节点），节点形如 `{title, children:[...]}`（文件夹）或 `{title, url}`（站点），递归解析文件夹为分类。前端由共享解析器 `public/js/bookmark-parser.js` 先解析 Chrome/Firefox/Edge 导出的 JSON **或 Netscape 书签 HTML（.htm）** 并展示预览，确认后提交该结构；服务端不直接解析 HTML |
 | 成功 | `200 {"message":"Imported <N> bookmarks","categories":<int>,"sites":<N>}` |
 | 错误 | `400 {"error":"No bookmarks found"}` |
 | 行为 | 分类 `INSERT OR IGNORE`；按 `url|category` 去重（含与现有站点比对）；**缺失图标留空**（前端首字母占位兜底，不填第三方 favicon 服务 URL），随后后台并发（5/批）抓真实 favicon——Express 下载为本地文件 `/uploads/icons/...`，Worker 转 data URI（复用 `/api/fetch-icon` 的抓取链路），Worker 经 `executionCtx.waitUntil` 异步执行；抓取失败保留空值；记日志 `import_bookmarks` |
@@ -568,6 +528,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | D20 | 500 错误一致性 | **Express 侧已修复**：所有路由 try/catch 统一 `500 {"error":"Internal server error"}`，细节只进 `console.error`，不再外泄 `err.message`（含 SQL） | 多数路由无 try/catch，异常由 Workers 运行时兜底（非 JSON） | Worker 侧统一为 `500 {"error":"Internal server error"}` JSON |
 | D21 | 静态资源的安全响应头 | 由全局中间件统一加（`E:75-81`），`express.static` 与 API 响应一视同仁 | `wrangler.toml` 配置 `[assets] binding="ASSETS"` + `run_worker_first=true`（`cloudflare/wrangler.toml:5-11`），所有请求先过 Worker；静态响应经 `fetchAsset`（`W:132-137`）重新包装后补上安全头 | 行为已一致（静态响应两端均带 4 个安全头），实现路径不同，可保留 |
 | D22 | POST /api/sites/:id/click 限流 | 公开 + IP 限流 60 次/小时（固定窗口内存限流，超限 `429 {"error":"Too many requests"}`，`E:653-659`） | 公开、**无限流**（W:366-374） | Worker 补同参数限流（per-isolate 注意，见 S9） |
+| D23 | GET /api/export 的 `icons` 字段 / POST /api/import 的图标恢复 | 导出打包 `uploads/icons` 下全部图标文件（base64，文件名白名单）；导入时在事务提交后写回文件并返回 `iconsRestored` | 导出恒为 `icons:{}`（图标以 data URI 存于库内，随 sites/links 导出）；导入忽略 `icons` 字段，`iconsRestored` 恒为 0 | 数据形态已兼容（对象字段），Worker 接 R2 文件存储后可与 Express 对齐 |
 
 ---
 
@@ -579,7 +540,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | S2 | ~~fetch-icon 未鉴权 SSRF~~ | `E:1820` / `W:984` | **已修复**：两端均收紧为 requireAuth；仅允许 http/https；私网/保留地址拦截且每个重定向跳重查（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量）；手动重定向 ≤3、8s 超时、HTML 限读 50KB；剩余私网判定深度差异见 D8/D16 |
 | S3 | ~~health-check 任意 URL 探测~~ | `E:1892` / `W:1372` | **已修复（阶段 4）**：改为按 `siteIds` 检测库内站点（≤50），不再接受任意 URL；私网/保留地址拦截（Express 含 DNS 解析判断，Worker 为主机名+IP 字面量，见 D16）；并发 5、8s 超时、重定向 ≤3 且逐跳重查 |
 | S4 | ~~batch update SQL 注入~~ | `E:583-586` / `W:324-327` | **已修复**：`data` 键名白名单（13 个可更新列），白名单外返回 `400 Invalid field`，契约测试已覆盖 |
-| S5 | ~~PUT /api/settings 无白名单~~ | `E:1159-1164` / `W:547-552` | **已修复**：两个 settings PUT 均要求 requireAdmin 且强制可写键白名单（10 键，不含 `weather_api_key`），白名单外键 `400 Invalid setting key`；布尔键归一化为 `'true'/'false'`；旧 `PUT /api/settings` 仅作废弃别名保留（带 `Deprecation`/`Sunset` 头），契约测试已覆盖 |
+| S5 | ~~PUT /api/settings 无白名单~~ | `E:1159-1164` / `W:547-552` | **已修复**：两个 settings PUT 均要求 requireAdmin 且强制可写键白名单（11 键，不含任何敏感键），白名单外键 `400 Invalid setting key`；布尔键归一化为 `'true'/'false'`；旧 `PUT /api/settings` 仅作废弃别名保留（带 `Deprecation`/`Sunset` 头），契约测试已覆盖 |
 | S6 | ~~导出含敏感信息~~ | `E:734` / `W:814` | **已修复**：`/api/export`、`/api/admin/settings`、`/api/logs`、`PUT /api/settings` 均收紧为 requireAdmin |
 | S7 | ~~密钥硬编码入库~~ | `E:321` / `W:98` | **已修复**：两端 `weather_api_key` 默认均为 `''`，前端 `public/js/app.js` 已无硬编码 key |
 | S8 | 公开写接口无防护 | `E:1210/1328/654` 等 | **部分修复（阶段 4 起）**：投稿加蜜罐 `website` + IP 限流 5/h + 字段/分类/URL 校验 + `normalized_url` 去重（409）；举报加 reason 枚举 + IP 限流 10/h + 同站同 IP 24h 去重；点击统计 `POST /api/sites/:id/click` Express 已加 IP 限流 60/h，**Worker 端仍无限流**（见 D22） |
@@ -589,7 +550,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ## 契约测试
 
-`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 10 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化）、weather（坐标非法 400、启用但无 `WEATHER_API_KEY` 时 503、禁用 404）、hot（未知源 400；200/502 分支依赖外网与上游风控，不进用例表）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）、**repair-icons（未鉴权 401、editor 403、非法/超 5 个 id 400、emoji 图标 skipped、不可达站点 failed 且旧图标保留、结果状态枚举与 summary 计数、重复 id 去重）**。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。两个运行时的子进程均剥离 `WEATHER_API_KEY` 环境变量，保证 weather 503 分支确定性。
+`test/contract.test.js` 是双运行时契约测试：同一份「共享契约用例表」分别打向 Express 实例与本地 Wrangler dev 实例，断言两端返回兼容的状态码与字段结构（字段存在性 + JSON 类型），作为合并门禁。用例表覆盖：登录（401/200+token）、`/api/auth/me`（401/must_change_password 豁免/四字段）、强制改密流程、editor 账号创建与登录、站点 CRUD、batch 字段白名单与未知 action 的 400、分类列表、投稿（提交返回 `trackingToken`、`normalized_url` 重复 409、按 token 公开查状态且不含邮箱、未知 token 404、审核收录）、举报（枚举外 reason 400、重复举报不增行）、stats overview 的 `pending_reports/pending_submissions` 计数、settings（公开 GET 恰好 11 键精确集合、废弃 PUT 的 401/editor 403/400/200 + `Deprecation`/`Sunset` 头与 `deprecated:true`、`PUT /api/admin/settings` 的 editor 403/400/admin 200 与布尔归一化与非法值 `400 {error,field}`）、tags（列表/创建）、站点标签（未鉴权 401、POST 关联、GET /api/sites 的 `tags` 字段结构 `{id,name,color}`、按 name 排序、无标签站点 `[]`）、links、pages（GET 列表、POST 创建两端一致 201，D3 已消除）、export 的 401/editor 403/admin 200 与字段、health-check（鉴权 401、空/缺/旧格式 `{urls}` 均返回 `{results:[]}`、>50 个 id 400、127.0.0.1 IP 字面量站点两端一致判定 `Blocked private host` 且 `consecutive_failures` 递增）、**repair-icons（未鉴权 401、editor 403、非法/超 5 个 id 400、emoji 图标 skipped、不可达站点 failed 且旧图标保留、结果状态枚举与 summary 计数、重复 id 去重）**。上传的扩展名/魔数校验与安全头断言为 Express 独有行为，由 `test/api.test.js` 覆盖（Worker 上传仍是 stub，见 D6）。
 
 两个目标都以**独立子进程**启动在随机端口上，互不干扰也不与 `test/api.test.js` 的进程内单例冲突：
 
@@ -608,4 +569,4 @@ CONTRACT_TARGET=both npm run test:contract       # 两端各跑一遍同一用�
 
 ---
 
-> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-09-15）：新增 `POST /api/admin/repair-icons`（§17，站点管理页批量图标修复；D9 扩展）；修正 §15 书签导入描述——缺失图标留空 + 后台抓取，不再「先填 Google favicon URL」；§17 抓取实现行号重校（Worker `/api/fetch-icon` 抽取为 `fetchPageHtml`/`parsePageMeta` 并与书签导入回填、`repair-icons` 复用）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。
+> 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-09-19）：① §11 白名单 10→11 键（新增 `home_config`/`site_url`，随天气/热榜下线移除 `weather_enabled`/`weather_api_key`），补充共享值校验 `400 {error,field}` 行为；② §12/§12a 标记天气与热榜功能已下线（端点、设置键、`hot_cache` 表、实现文件与测试均已删除），仅作历史留档；③ §15 导出新增 `icons` 字段（Express 打包图标文件，Worker 恒 `{}`）、导入恢复图标文件并返回 `iconsRestored`（新增 D23），书签导入改为前端共享解析器（`bookmark-parser.js`，支持 Chrome JSON 与 Netscape HTML）先解析预览再提交规范树，服务端契约不变；④ 契约测试说明同步（11 键、去除 weather/hot 用例描述）。本次修订（2026-09-15）：新增 `POST /api/admin/repair-icons`（§17，站点管理页批量图标修复；D9 扩展）；修正 §15 书签导入描述——缺失图标留空 + 后台抓取，不再「先填 Google favicon URL」；§17 抓取实现行号重校（Worker `/api/fetch-icon` 抽取为 `fetchPageHtml`/`parsePageMeta` 并与书签导入回填、`repair-icons` 复用）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。

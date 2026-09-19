@@ -12,24 +12,35 @@ const backupJs = fs.readFileSync(path.join(projectRoot, 'public/admin/js/backup.
 const dashboardHtml = fs.readFileSync(path.join(projectRoot, 'public/admin/dashboard.html'), 'utf8');
 const dashboardJs = fs.readFileSync(path.join(projectRoot, 'public/admin/js/dashboard.js'), 'utf8');
 
-test('backup.html: bookmark import card has progress bar, file info and aria-live status', () => {
+test('backup.html: bookmark import card has progress bar, file info, preview and aria-live status', () => {
     assert.match(backupHtml, /id="bookmarkFileInfo"/);
     assert.match(backupHtml, /id="bookmarkProgressWrap"/);
     assert.match(backupHtml, /id="bookmarkProgressFill"/);
     assert.match(backupHtml, /id="bookmarkProgressText"/);
     assert.match(backupHtml, /id="bookmarkImportStatus"[^>]*role="status"[^>]*aria-live="polite"/);
     assert.match(backupHtml, /class="progress-fill"/);
+    // 解析预览：摘要 + 列表 + 确认/取消，支持 JSON 与 Netscape HTML
+    assert.match(backupHtml, /id="bookmarkPreview"/);
+    assert.match(backupHtml, /id="bookmarkSummary"/);
+    assert.match(backupHtml, /id="bookmarkList"/);
+    assert.match(backupHtml, /id="bookmarkConfirmBtn"/);
+    assert.match(backupHtml, /id="bookmarkCancelBtn"/);
+    assert.match(backupHtml, /bookmarkFile"[^>]*accept="\.json,\.htm,\.html"/);
+    assert.match(backupHtml, /bookmark-parser\.js/);
 });
 
 test('backup.js: FileReader progress, staged states, input lock/restore and error recovery', () => {
     // 文件读取进度来自 FileReader 的 progress 事件
     assert.match(backupJs, /FileReader/);
     assert.match(backupJs, /readAsText/);
-    // 读取 → 解析 → 导入 → 完成 各阶段文案
-    assert.match(backupJs, /正在读取文件/);
-    assert.match(backupJs, /正在解析书签/);
+    // 解析 → 预览 → 写入 → 完成 各阶段文案
+    assert.match(backupJs, /正在读取并解析书签/);
+    assert.match(backupJs, /请确认上方的导入预览/);
     assert.match(backupJs, /正在写入分类和站点/);
     assert.match(backupJs, /图标可在「站点管理」页批量修复/);
+    // 共享解析器解析 JSON / Netscape HTML，前端先预览再提交
+    assert.match(backupJs, /DogNavBookmarkParser\.parse/);
+    assert.match(backupJs, /确认导入/);
     // 无效 JSON / 无书签 / 网络错误分别提示
     assert.match(backupJs, /不是有效的 JSON/);
     assert.match(backupJs, /没有可导入的书签/);

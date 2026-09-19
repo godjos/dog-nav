@@ -5,13 +5,22 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
 
-        // 10 个公开可写设置键对应的表单控件
-        const TEXT_FIELDS = ['site_name', 'site_description', 'site_icon',
+        // 公开可写设置键对应的表单控件
+        const TEXT_FIELDS = ['site_name', 'site_description', 'site_icon', 'site_url',
             'footer_text', 'footer_blog_url', 'footer_github_url'];
         const COLOR_FIELDS = ['theme_primary_color', 'theme_secondary_color'];
-        const BOOL_FIELDS = ['submission_enabled', 'weather_enabled'];
+        const BOOL_FIELDS = ['submission_enabled'];
 
         let isAdmin = false;
+        let loadedSettings = null;
+
+        function readSettingsForm() {
+            const values = {};
+            TEXT_FIELDS.concat(COLOR_FIELDS).forEach(key => values[key] = document.getElementById(key).value);
+            BOOL_FIELDS.forEach(key => values[key] = document.getElementById(key).checked ? 'true' : 'false');
+            values.home_config = DogNavHomeSettings.read();
+            return values;
+        }
 
         function setFormDisabled(disabled) {
             TEXT_FIELDS.concat(COLOR_FIELDS).forEach(key => {
@@ -23,9 +32,12 @@
                 if (el) el.disabled = disabled;
             });
             document.getElementById('saveSettingsBtn').disabled = disabled;
+            DogNavHomeSettings.setDisabled(disabled);
         }
 
         async function loadSettings() {
+            setFormDisabled(true);
+            document.getElementById('retrySettingsBtn').hidden = true;
             try {
                 const res = await fetch('/api/admin/settings', { headers: authHeaders() });
                 if (res.status === 403) {
@@ -34,7 +46,7 @@
                     showToast('无权限查看系统设置', 'error');
                     return;
                 }
-                if (!res.ok) { showToast('加载设置失败', 'error'); return; }
+                if (!res.ok) throw new Error('加载设置失败');
                 const settings = await res.json();
                 TEXT_FIELDS.forEach(key => {
                     const el = document.getElementById(key);
@@ -42,33 +54,36 @@
                 });
                 COLOR_FIELDS.forEach(key => {
                     const el = document.getElementById(key);
-                    // color input 只接受 #rrggbb，其他格式保留默认显示
-                    if (el && /^#[0-9a-fA-F]{6}$/.test(settings[key] || '')) el.value = settings[key];
+                    if (el) el.value = typeof settings[key] === 'string' ? settings[key] : '';
                 });
                 BOOL_FIELDS.forEach(key => {
                     const el = document.getElementById(key);
                     if (el) el.checked = settings[key] === 'true';
                 });
+                await DogNavHomeSettings.load(settings.home_config);
+                loadedSettings = readSettingsForm();
+                setFormDisabled(!isAdmin);
             } catch (err) {
                 showToast('加载设置失败', 'error');
+                document.getElementById('retrySettingsBtn').hidden = false;
             }
         }
 
         async function saveSettings() {
-            if (!isAdmin) {
+            if (!isAdmin || !loadedSettings) {
                 showToast('无权限修改系统设置', 'error');
                 return;
             }
-            const settings = {};
-            TEXT_FIELDS.forEach(key => {
-                settings[key] = document.getElementById(key).value;
-            });
-            COLOR_FIELDS.forEach(key => {
-                settings[key] = document.getElementById(key).value;
-            });
-            BOOL_FIELDS.forEach(key => {
-                settings[key] = document.getElementById(key).checked ? 'true' : 'false';
-            });
+            const formValues = readSettingsForm();
+            const settings = Object.fromEntries(Object.entries(formValues).filter(([key, value]) => value !== loadedSettings[key]));
+            if (!Object.keys(settings).length) { showToast('没有需要保存的修改'); return; }
+            const validation = DogNavSettingsSchema.validateSettingsUpdate(settings);
+            if (validation.error) {
+                showToast(validation.error, 'error');
+                document.getElementById(validation.field)?.focus();
+                return;
+            }
+            setFormDisabled(true);
 
             try {
                 const res = await fetch('/api/admin/settings', {
@@ -78,12 +93,17 @@
                 });
                 const data = await res.json();
                 if (res.ok && data.message) {
+                    loadedSettings = formValues;
                     showToast('设置已保存，前台刷新后生效');
                 } else {
+                    setFormDisabled(!isAdmin);
                     showToast(data.error || '保存失败', 'error');
+                    if (data.field) document.getElementById(data.field)?.focus();
                 }
             } catch (err) {
                 showToast('保存失败', 'error');
+            } finally {
+                setFormDisabled(!isAdmin);
             }
         }
 
@@ -137,6 +157,8 @@
             // 按钮事件绑定（原 onclick，CSP 下改为 JS 绑定）
             document.getElementById('changePwdBtn').addEventListener('click', changePassword);
             document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+            document.getElementById('retrySettingsBtn').addEventListener('click', loadSettings);
+            document.getElementById('previewHomeBtn').addEventListener('click', () => DogNavHomeSettings.preview(readSettingsForm()));
 
             loadSettings();
         })();

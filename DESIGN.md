@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-09-16
+- Last refreshed: 2026-09-19
 - Primary product surfaces: 首页（个人工作台 Start Page，home 视图 + all 二级视图）、管理后台、静态内容页
 - Direction: 极简、克制、现代的个人数字工作台 / Start Page；80% 导航 + 20% 轻量工作台；dark-first、低饱和，靠字体/间距/对齐建立层级；参考 Mafl/Bento 式极简导航与 Raycast/Linear 式的克制，无渐变/玻璃拟态/霓虹/大阴影/背景图（仅搜索区一层极弱蓝色环境光）
 - Evidence reviewed: `public/index.html`, `public/css/style.css`, `public/js/app.js`, `public/js/settings-loader.js`, `public/js/utils.js`, `README.md`，以及 2026-09-16 按目标效果图对齐后在 1440×900 / 390×844 × 浅色/深色下的首页截图
@@ -77,6 +77,13 @@
 - Microcopy rules: 先说明状态再给出动作；错误信息一句话，不堆技术细节
 
 ## Implementation constraints
+
+### 首页配置与维护（2026-09-19）
+- 保留当前工作台布局与组件，不引入框架或依赖。首页提供可见的加载、错误、重试反馈。
+- 后台设置定义公共默认分类、每类条数、常用入口、状态模块和搜索引擎；访客的常用入口与引擎选择优先，不被后台更新覆盖。
+- 首页常用区以「编辑」切换原生按钮排序、移除操作，支持键盘与触屏；最多 12 项全部可见。
+- 后台预览复用真实首页并隔离访客本地偏好；未保存预览不写入服务器。
+- 迁移支持书签 HTML/JSON 预览确认、个人偏好导入导出。内容备份与本地图标资源分开说明和操作，不把内容 JSON 描述为整站备份。
 - Framework/styling system: 原生 HTML/CSS/JS；Express 静态资源；双后端共享同一套公共页面；首页为 `home`/`all` 双视图（`hidden` 切换，不走路由）
 - Design-token constraints: 只改 `:root` 与 `[data-theme]` 变量与既有 class，不引入新 token 系统；管理后台 `admin.css` 独立，不受影响
 - Performance constraints: 不新增依赖/图片；动画全部 CSS-first；首屏外部请求仅 Google Fonts；热榜仅在进入热榜模式后请求；favicon 懒加载 + 首字母回退；固定尺寸容器避免布局偏移

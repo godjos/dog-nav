@@ -4,15 +4,25 @@
 // /js/settings-loader.js 统一加载。
 // 两个视图：home = 工作台首页（问候/时钟 → 搜索 → 常用 Dock →
 // 轻量状态 → 分类工作流区）；all = 全部应用（分类 + 精选/收藏/最近/
-// 热门/最新/热榜，由右下角「全部应用」进入）。搜索、收藏、最近访问、
-// 点击统计、热榜懒加载等业务逻辑两端视图共用。
+// 热门/最新，由右下角「全部应用」进入）。搜索、收藏、最近访问、
+// 点击统计等业务逻辑两端视图共用。
 // ═══════════════════════════════════════════
 
 // ═══════════════════════════════════════════
 // THEME — persisted across pages via localStorage
 // ═══════════════════════════════════════════
 const H = document.documentElement;
-const savedTheme = localStorage.getItem('dognav-theme');
+const previewMode = new URLSearchParams(location.search).get('preview') === '1' && window.parent !== window;
+const savedTheme = previewMode ? null : localStorage.getItem('dognav-theme');
+function writePreference(key, value) { if (!previewMode) localStorage.setItem(key, value); }
+// 后台「首页设置」预览：接收父页面推送的预览设置并应用到当前页
+window.addEventListener('message', (event) => {
+    if (!previewMode || event.origin !== location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== 'dognav:preview' || typeof data.settings !== 'object') return;
+    window.DogNavSettings.apply(data.settings);
+    applyHomeConfig(window.DogNavSettings.current);
+});
 if (savedTheme) H.setAttribute('data-theme', savedTheme);
 
 // ═══════════════════════════════════════════
@@ -20,14 +30,8 @@ if (savedTheme) H.setAttribute('data-theme', savedTheme);
 // ═══════════════════════════════════════════
 const S = []; // GET /api/sites（仅 status === 'active'）
 
-const E = {
-    baidu: { u: 'https://www.baidu.com/s?wd=', n: '百度' },
-    google: { u: 'https://www.google.com/search?q=', n: 'Google' },
-    bing: { u: 'https://www.bing.com/search?q=', n: 'Bing' },
-    github: { u: 'https://github.com/search?q=', n: 'GitHub' },
-    bilibili: { u: 'https://search.bilibili.com/all?keyword=', n: 'B站' },
-    zhihu: { u: 'https://www.zhihu.com/search?type=content&q=', n: '知乎' },
-};
+let homeConfig = DogNavHomeConfig.parse(null);
+let E = Object.fromEntries(homeConfig.engines.map(e => [e.id, { u: e.url, n: e.name }]));
 
 const C = {}; // GET /api/categories → { id: { i, l } }
 
@@ -49,6 +53,7 @@ let initialCatResolved = false; // 首屏默认分类（推荐 → 第一个有�
 // LOCAL STORAGE — 收藏与最近访问（无账号）
 // ═══════════════════════════════════════════
 function loadJSON(key, fallback) {
+    if (previewMode) return fallback;
     try {
         const v = JSON.parse(localStorage.getItem(key));
         return v === null || v === undefined ? fallback : v;
@@ -60,7 +65,7 @@ if (!Array.isArray(favs)) favs = [];
 let recent = loadJSON('dognav-recent', []);
 if (!Array.isArray(recent)) recent = [];
 
-function saveFavs() { localStorage.setItem('dognav-favorites', JSON.stringify(favs)); }
+function saveFavs() { writePreference('dognav-favorites', JSON.stringify(favs)); }
 function isFav(id) { return favs.some(f => String(f) === String(id)); }
 function toggleFav(id) {
     if (isFav(id)) favs = favs.filter(f => String(f) !== String(id));
@@ -72,15 +77,18 @@ function addRecent(id) {
     recent = recent.filter(r => String(r.id) !== String(id));
     recent.unshift({ id, t: Date.now() });
     if (recent.length > 20) recent.length = 20;
-    localStorage.setItem('dognav-recent', JSON.stringify(recent));
+    writePreference('dognav-recent', JSON.stringify(recent));
 }
 
 // ── 我的常用（首页 Dock 高频入口）──
 // null 表示首次访问尚未初始化（区别于用户主动清空后的 []，后者保持空不再预填）
 const PINNED_MAX = 12;
 let pinned = loadJSON('dognav-pinned', null);
+if (!Array.isArray(pinned)) pinned = null;
+let personalPins = pinned !== null;
+let dockEditing = false;
 
-function savePinned() { localStorage.setItem('dognav-pinned', JSON.stringify(pinned)); }
+function savePinned() { personalPins = true; writePreference('dognav-pinned', JSON.stringify(pinned)); }
 function isPinned(id) { return Array.isArray(pinned) && pinned.some(p => String(p) === String(id)); }
 function togglePin(id) {
     if (!Array.isArray(pinned)) pinned = [];
@@ -499,7 +507,7 @@ function renderDock() {
     const hint = document.getElementById('dockHint');
     if (!dock) return;
     dock.textContent = '';
-    const items = pinnedSites().slice(0, 10);
+    const items = pinnedSites().slice(0, PINNED_MAX);
     if (hint) hint.hidden = items.length > 0;
     items.forEach(s => {
         const url = sanitizeUrl(s.url);
@@ -522,7 +530,33 @@ function renderDock() {
                 trackClick(String(s.id));
             }
         });
-        dock.appendChild(a);
+        const entry = document.createElement('div');
+        entry.className = 'dock-entry';
+        entry.appendChild(a);
+        if (dockEditing) {
+            const controls = document.createElement('div');
+            controls.className = 'dock-tools';
+            const index = items.indexOf(s);
+            for (const [label, text, offset] of [['前移', '←', -1], ['后移', '→', 1], ['移除', '×', 0]]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = text;
+                btn.setAttribute('aria-label', label + s.name);
+                btn.disabled = offset !== 0 && (index + offset < 0 || index + offset >= items.length);
+                btn.addEventListener('click', () => {
+                    pinned = items.map(item => item.id);
+                    if (!offset) pinned.splice(index, 1);
+                    else [pinned[index], pinned[index + offset]] = [pinned[index + offset], pinned[index]];
+                    savePinned();
+                    renderDock();
+                    const next = dock.querySelectorAll('.dock-tools')[Math.min(index + offset, pinned.length - 1)];
+                    next?.querySelector('button:not(:disabled)')?.focus();
+                });
+                controls.appendChild(btn);
+            }
+            entry.appendChild(controls);
+        }
+        dock.appendChild(entry);
     });
 }
 
@@ -571,7 +605,7 @@ function renderStatusRow() {
     const read = S.find(s => /karakeep/i.test(`${s.name || ''} ${s.url || ''} ${s.keywords || ''}`));
     const stRead = document.getElementById('stRead');
     if (stRead) {
-        stRead.hidden = !read;
+        stRead.hidden = !read || !homeConfig.show_read_later;
         stRead.onclick = null;
         if (read) {
             const url = sanitizeUrl(read.url);
@@ -616,10 +650,11 @@ function renderHomeCats() {
     const box = document.getElementById('catSections');
     if (!box) return;
     box.textContent = '';
-    Object.entries(C).forEach(([id, c]) => {
+    const categories = homeConfig.category_ids === null ? Object.entries(C) : homeConfig.category_ids.filter(id => C[id]).map(id => [id, C[id]]);
+    categories.forEach(([id, c]) => {
         const all = S.filter(s => s.category === id);
         if (all.length === 0) return;
-        const items = all.slice(0, HOME_CAT_MAX);
+        const items = all.slice(0, homeConfig.category_limit || HOME_CAT_MAX);
         const sec = document.createElement('section');
         sec.className = 'wf-sec';
         const head = document.createElement('div');
@@ -668,10 +703,13 @@ function renderHomeCats() {
 function renderHome() {
     renderDock();
     renderStatusRow();
+    document.getElementById('stRecent').hidden = !homeConfig.show_recent;
+    document.getElementById('stFav').hidden = !homeConfig.show_favorites;
+    document.getElementById('stHealth').hidden = !homeConfig.show_health;
     renderHomeCats();
 }
 
-// 视图切换：home（工作台）↔ all（全部应用，承载分类/精选/热门/最新/收藏/最近/热榜）
+// 视图切换：home（工作台）↔ all（全部应用，承载分类/精选/热门/最新/收藏/最近）
 function openAllView(target) {
     pageView = 'all';
     document.getElementById('homeView').hidden = true;
@@ -707,9 +745,6 @@ function render() {
 
     updateNavHighlight();
     buildTagNav();
-
-    // 热榜视图与站点数据无关，走独立渲染分支（仅此刻才请求热榜接口）
-    if (curView === 'trending') { renderTrending(a); initReveal(); return; }
 
     if (S.length === 0) {
         a.appendChild(buildNote('暂无站点，欢迎投稿。', '去投稿 →', 'contribute.html'));
@@ -786,129 +821,6 @@ function defaultCategory() {
     if (C['recommend']) return 'recommend';
     const first = Object.keys(C)[0];
     return first || 'all';
-}
-
-// ═══════════════════════════════════════════
-// HOT LIST — 热榜模式（服务端聚合代理 /api/hot/:source）
-// 仅在用户进入「热榜」模式后加载，不再默认展开六源数据
-// ═══════════════════════════════════════════
-const HOT_SOURCES_UI = [
-    { id: 'zhihu', label: '知乎热榜' },
-    { id: 'weibo', label: '微博热搜' },
-    { id: 'bilibili', label: 'B站热榜' },
-    { id: 'ithome', label: 'IT之家' },
-    { id: '36kr', label: '36氪' },
-    { id: 'sspai', label: '少数派' },
-];
-const hotDataCache = new Map(); // source -> { data, expires }（5 分钟；服务端另有 10 分钟缓存）
-const hotRequests = new Map();  // source -> Promise；复用同一请求
-const HOT_CLIENT_TTL_MS = 5 * 60 * 1000;
-let curHotSource = localStorage.getItem('dognav-hot-source') || 'zhihu';
-
-async function loadHot(source) {
-    const hit = hotDataCache.get(source);
-    if (hit && hit.expires > Date.now()) return hit.data;
-    const pending = hotRequests.get(source);
-    if (pending) return pending;
-    const request = fetchJSON('/api/hot/' + encodeURIComponent(source)).then(data => {
-        hotDataCache.set(source, { data, expires: Date.now() + HOT_CLIENT_TTL_MS });
-        return data;
-    }).finally(() => {
-        if (hotRequests.get(source) === request) hotRequests.delete(source);
-    });
-    hotRequests.set(source, request);
-    return request;
-}
-
-// 热度值：知乎已是文案（如 "1234 万热度"）原样透传；数字做万位缩写
-function formatHotVal(v) {
-    if (typeof v === 'string') return v;
-    const n = Number(v);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    return n >= 10000 ? `${(n / 10000).toFixed(1).replace(/\.0$/, '')} 万` : String(n);
-}
-
-function renderTrending(a) {
-    a.appendChild(buildSecHead('📈', '热榜'));
-
-    if (!HOT_SOURCES_UI.some(s => s.id === curHotSource)) curHotSource = HOT_SOURCES_UI[0].id;
-
-    // 源切换 pill
-    const bar = document.createElement('div');
-    bar.className = 'hot-src-bar rv vis';
-    HOT_SOURCES_UI.forEach(s => {
-        const btn = document.createElement('button');
-        btn.className = 'cat-pill' + (s.id === curHotSource ? ' on' : '');
-        btn.textContent = s.label;
-        btn.addEventListener('click', () => {
-            curHotSource = s.id;
-            localStorage.setItem('dognav-hot-source', s.id);
-            render();
-        });
-        bar.appendChild(btn);
-    });
-    a.appendChild(bar);
-
-    // 异步数据只写入 holder：render() 重渲染时旧 holder 已脱离文档，天然防竞态
-    const holder = document.createElement('div');
-    holder.className = 'hot-list';
-    const loading = document.createElement('div');
-    loading.className = 'area-note';
-    loading.textContent = '加载中…';
-    holder.appendChild(loading);
-    a.appendChild(holder);
-
-    // 固定本次渲染对应的 source，避免用户快速切换时错误地清理另一个来源。
-    const source = curHotSource;
-    loadHot(source).then(data => {
-        holder.textContent = '';
-        const items = Array.isArray(data.items) ? data.items : [];
-        items.forEach((it, i) => {
-            const url = sanitizeUrl(it.url);
-            if (!url || !it.title) return;
-            const row = document.createElement('a');
-            row.className = 'hot-item rv vis';
-            row.href = url;
-            row.target = '_blank';
-            row.rel = 'noopener';
-            const rank = document.createElement('span');
-            rank.className = 'hot-rank' + (i < 3 ? ' top' : '');
-            rank.textContent = String(i + 1);
-            const title = document.createElement('span');
-            title.className = 'hot-title';
-            title.textContent = it.title;
-            row.append(rank, title);
-            const hotText = formatHotVal(it.hot);
-            if (hotText) {
-                const hot = document.createElement('span');
-                hot.className = 'hot-val';
-                hot.textContent = hotText;
-                row.appendChild(hot);
-            }
-            holder.appendChild(row);
-        });
-        if (!holder.hasChildNodes()) {
-            holder.appendChild(buildNote('该榜单暂无数据。'));
-            return;
-        }
-        const updated = parseUtcTime(data.updated);
-        if (data.stale || updated) {
-            const meta = document.createElement('div');
-            meta.className = 'hot-meta';
-            meta.textContent = (data.stale ? '数据可能不是最新 · ' : '') +
-                (updated ? `更新于 ${updated.toLocaleString('zh-CN')}` : '');
-            holder.appendChild(meta);
-        }
-    }).catch(() => {
-        // 一次上游失败不再永久隐藏入口，让用户明确看到状态并可单源重试。
-        hotDataCache.delete(source);
-        holder.textContent = '';
-        const label = HOT_SOURCES_UI.find(s => s.id === source)?.label || '该榜单';
-        holder.appendChild(buildNote(`${label}暂时无法更新。`, null, null, '重新加载', () => {
-            hotDataCache.delete(source);
-            if (curView === 'trending' && curHotSource === source) render();
-        }));
-    });
 }
 
 // ═══════════════════════════════════════════
@@ -1086,12 +998,12 @@ function updateSearchPanel() {
         p.textContent = '未找到相关站点';
         const row = document.createElement('div');
         row.className = 'sr-ext-row';
-        [['baidu', '百度搜'], ['google', 'Google 搜']].forEach(([eng, label]) => {
+        Object.entries(E).slice(0, 2).map(([id, e]) => [id, e.n + ' 搜']).forEach(([eng, label]) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'sr-ext-btn';
             btn.textContent = `${label}「${q}」`;
-            const item = { kind: 'ext', url: E[eng].u + encodeURIComponent(q), el: btn };
+            const item = { kind: 'ext', url: E[eng].u.replace('{query}', encodeURIComponent(q)), el: btn };
             btn.addEventListener('mousedown', e => { e.preventDefault(); openSrItem(item); });
             row.appendChild(btn);
         });
@@ -1106,7 +1018,7 @@ function updateSearchPanel() {
 
 function externalSearch() {
     const q = searchInput.value.trim();
-    if (q) window.open(E[curE].u + encodeURIComponent(q), '_blank', 'noopener');
+    if (q) window.open(E[curE].u.replace('{query}', encodeURIComponent(q)), '_blank', 'noopener');
 }
 
 document.getElementById('searchBtn').addEventListener('click', () => {
@@ -1203,7 +1115,8 @@ document.addEventListener('click', e => {
     menu.addEventListener('click', e => {
         const opt = e.target.closest('.eng-option'); if (!opt) return;
         curE = opt.dataset.engine;
-        icoBtn.title = `搜索引擎：${E[curE].n}`;
+        writePreference('dognav-engine', curE);
+        syncEngineLabel();
         closeMenu();
         searchInput.focus();
     });
@@ -1411,13 +1324,83 @@ function trackClick(id) {
 // ═══════════════════════════════════════════
 document.getElementById('setClearData').addEventListener('click', () => {
     if (!window.confirm('确定清除本地保存的收藏与最近访问记录吗？（常用入口与主题设置会保留）')) return;
-    localStorage.removeItem('dognav-favorites');
-    localStorage.removeItem('dognav-recent');
+    if (!previewMode) {
+        localStorage.removeItem('dognav-favorites');
+        localStorage.removeItem('dognav-recent');
+    }
     favs = [];
     recent = [];
     render();
     toast('本地数据已清除');
     document.getElementById('setPop').hidden = true;
+});
+
+// 个人偏好导入导出：主题、搜索引擎、常用入口、收藏、最近访问
+const PREF_KEYS = ['dognav-theme', 'dognav-engine', 'dognav-pinned', 'dognav-favorites', 'dognav-recent'];
+const PREF_LIST_KEYS = { 'dognav-pinned': 12, 'dognav-favorites': 500, 'dognav-recent': 200 };
+
+function validPrefList(key, raw) {
+    let value;
+    try { value = JSON.parse(raw); } catch { return false; }
+    if (!Array.isArray(value) || value.length > PREF_LIST_KEYS[key]) return false;
+    return value.every(item => (typeof item === 'number' && Number.isFinite(item)) ||
+        (typeof item === 'string' && item.length <= 120));
+}
+
+function validPrefValue(key, value) {
+    if (typeof value !== 'string') return false;
+    if (key === 'dognav-theme') return value === 'dark' || value === 'light';
+    if (key === 'dognav-engine') return value.length <= 64;
+    return validPrefList(key, value);
+}
+
+document.getElementById('setExportPrefs').addEventListener('click', () => {
+    const data = {};
+    for (const key of PREF_KEYS) {
+        const value = localStorage.getItem(key);
+        if (value !== null) data[key] = value;
+    }
+    const payload = {
+        app: 'dognav', kind: 'preferences', version: 1,
+        exportedAt: new Date().toISOString(),
+        data,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dognav-preferences-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('偏好已导出');
+});
+
+document.getElementById('setImportPrefs').addEventListener('click', () => {
+    if (previewMode) { toast('预览模式下不能导入偏好'); return; }
+    document.getElementById('prefFileInput').click();
+});
+
+document.getElementById('prefFileInput').addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+        const payload = JSON.parse(await file.text());
+        if (!payload || payload.app !== 'dognav' || payload.kind !== 'preferences' ||
+            !payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) {
+            toast('文件格式错误：不是 DogNav 偏好文件');
+            return;
+        }
+        const entries = Object.entries(payload.data).filter(([key]) => PREF_KEYS.includes(key));
+        if (!entries.length) { toast('文件中没有可导入的偏好项'); return; }
+        const invalid = entries.find(([key, value]) => !validPrefValue(key, value));
+        if (invalid) { toast(`偏好值无效：${invalid[0]}`); return; }
+        for (const [key, value] of entries) localStorage.setItem(key, value);
+        toast('偏好已导入，即将刷新页面');
+        setTimeout(() => location.reload(), 600);
+    } catch {
+        toast('文件格式错误：不是有效的 JSON');
+    }
 });
 
 // ═══════════════════════════════════════════
@@ -1505,7 +1488,7 @@ function syncThemeSeg() {
 document.querySelectorAll('[data-set-theme]').forEach(b => {
     b.addEventListener('click', () => {
         H.setAttribute('data-theme', b.dataset.setTheme);
-        localStorage.setItem('dognav-theme', b.dataset.setTheme);
+        writePreference('dognav-theme', b.dataset.setTheme);
         syncThemeSeg();
     });
 });
@@ -1620,12 +1603,6 @@ function applyCategories(apiCats) {
     active.forEach(c => drawerCats.appendChild(buildDrawerItem('cat', c.id, `${c.icon || '📁'} ${c.name}`)));
     drawerModes.textContent = '';
     Object.entries(VIEW_META).forEach(([id, m]) => drawerModes.appendChild(buildDrawerItem('view', id, `${m.i} ${m.l}`)));
-    const trend = document.createElement('button');
-    trend.type = 'button';
-    trend.className = 'drawer-item';
-    trend.dataset.view = 'trending';
-    trend.textContent = '📈 热榜';
-    drawerModes.appendChild(trend);
 
     layoutCatPills();
     updateNavHighlight();
@@ -1653,6 +1630,7 @@ function showCatBarError() {
 
 async function loadData() {
     showLoadingSkeleton();
+    setHomeLoadState('正在加载站点…');
 
     const [sitesR, catsR] = await Promise.allSettled([
         fetchJSON('/api/sites'),
@@ -1666,6 +1644,7 @@ async function loadData() {
     }
 
     if (sitesR.status === 'rejected') {
+        setHomeLoadState('站点加载失败，请重试。', true);
         const a = document.getElementById('cardsArea');
         a.textContent = '';
         a.appendChild(buildNote('数据加载失败。', null, null, '点击重试', loadData));
@@ -1675,18 +1654,22 @@ async function loadData() {
     S.length = 0;
     sitesR.value.filter(s => s.status === 'active').forEach(s => S.push(s));
     sitesLoaded = true;
+    setHomeLoadState(catsR.status === 'rejected' ? '分类加载失败，请重试。' : '', catsR.status === 'rejected');
     // 首次访问：用累计点击 Top 8 预填「我的常用」，避免空白首屏；之后由用户自行增删
-    if (pinned === null && S.length > 0) {
-        pinned = [...S]
-            .sort((x, y) => (y.click_count || 0) - (x.click_count || 0))
-            .slice(0, 8)
-            .map(s => s.id);
-        savePinned();
-    }
+    if (!personalPins) pinned = defaultPinnedIds();
     render();
 }
 
+function setHomeLoadState(message, retry = false) {
+    const state = document.getElementById('homeLoadState');
+    state.replaceChildren();
+    state.hidden = !message;
+    if (message) state.appendChild(buildNote(message, null, null, retry ? '重试' : null, retry ? loadData : null));
+}
+
 (async function initCMS() {
+    await window.DogNavSettings.ready;
+    applyHomeConfig(window.DogNavSettings.current);
     await loadData();
 
     // ?q=xxx — 与 index.html 的 SearchAction JSON-LD 对齐：自动填入并执行站内搜索
@@ -1716,3 +1699,41 @@ async function loadData() {
         // Custom page links stay hidden
     }
 })();
+
+function defaultPinnedIds() {
+    return homeConfig.pinned_ids === null
+        ? [...S].sort((a, b) => (b.click_count || 0) - (a.click_count || 0)).slice(0, 8).map(s => s.id)
+        : homeConfig.pinned_ids.filter(id => S.some(s => String(s.id) === String(id)));
+}
+function syncEngineLabel() {
+    document.getElementById('engineLabel').textContent = E[curE].n;
+    document.getElementById('searchIco').title = '搜索引擎：' + E[curE].n;
+}
+function applyHomeConfig(settings) {
+    homeConfig = DogNavHomeConfig.parse(settings.home_config);
+    E = Object.fromEntries(homeConfig.engines.map(e => [e.id, { u: e.url, n: e.name }]));
+    const saved = previewMode ? null : localStorage.getItem('dognav-engine');
+    curE = saved && E[saved] ? saved : homeConfig.default_engine;
+    syncEngineLabel();
+    document.getElementById('engMenu').hidden = true;
+    if (sitesLoaded) {
+        if (!personalPins) pinned = defaultPinnedIds();
+        render();
+    }
+}
+window.addEventListener('dognav:settings', event => applyHomeConfig(event.detail));
+document.getElementById('editDock').addEventListener('click', event => {
+    dockEditing = !dockEditing;
+    event.currentTarget.textContent = dockEditing ? '完成' : '编辑常用';
+    event.currentTarget.setAttribute('aria-pressed', String(dockEditing));
+    document.getElementById('dockEditActions').hidden = !dockEditing;
+    renderDock();
+});
+document.getElementById('addDock').addEventListener('click', () => openAllView());
+document.getElementById('resetDock').addEventListener('click', () => {
+    if (!confirm('恢复管理员推荐的常用入口？你的自定义顺序将被替换。')) return;
+    if (!previewMode) localStorage.removeItem('dognav-pinned');
+    personalPins = false;
+    pinned = defaultPinnedIds();
+    renderDock();
+});

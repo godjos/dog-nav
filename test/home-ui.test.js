@@ -2,7 +2,7 @@
 // 锁定：无顶栏（右上角浮动时钟）→ 问候 → 居中搜索（放大镜引擎入口 + ⌘K）→
 // 常用 Dock → 轻量状态区（最近/稍后阅读/收藏/服务状态[/今日事项]）→
 // 分类工作流区（标题左置 + 每类 5 个 + ›）；右下角文字按钮；
-// 「全部应用」二级视图承载分类/精选/热门/最新/收藏/最近/热榜。
+// 「全部应用」二级视图承载分类/精选/热门/最新/收藏/最近。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -78,14 +78,12 @@ test('app.js: 视图调度、工作台渲染（Karakeep 检测/每类 5 个）�
     assert.match(appJs, /karakeep\/i\.test/);
     assert.match(appJs, /getElementById\('searchIco'\)/);
     assert.ok(!/themeBtn|mobBtn|navbar|engCurrent/.test(appJs), '顶栏与旧引擎下拉的引用应已移除');
-    // 搜索打分与热榜懒加载
+    // 搜索打分；热榜链路已整体移除（前端视图 + 后端 /api/hot/*）
     assert.match(appJs, /function scoreSite\(s, ql\)/);
-    assert.match(appJs, /if \(curView === 'trending'\) \{ renderTrending\(a\)/);
-    const loadHotCalls = appJs.match(/loadHot\(/g) || [];
-    assert.ok(loadHotCalls.length <= 2, `loadHot 定义+调用应只在热榜链路（≤2 处），实际 ${loadHotCalls.length}`);
+    assert.ok(!/renderTrending|loadHot|dognav-hot-source|\/api\/hot/.test(appJs), '热榜相关代码应已移除');
     assert.ok(!/renderPinnedBar|renderHomeHot|renderHomeExtras|renderHomeFav|fetchRealIcon/.test(appJs), '旧的首页附加区应已移除');
     // localStorage 兼容键
-    for (const key of ['dognav-favorites', 'dognav-recent', 'dognav-theme', 'dognav-hot-source', 'dognav-pinned']) {
+    for (const key of ['dognav-favorites', 'dognav-recent', 'dognav-theme', 'dognav-pinned']) {
         assert.ok(appJs.includes(key), `缺少 localStorage 键 ${key}`);
     }
     // 模式优先级：收藏/最近排在热门/最新之前（全部应用视图内）

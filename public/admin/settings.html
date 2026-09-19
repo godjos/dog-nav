@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DogNav 设置</title>
     <link rel="stylesheet" href="/admin/admin.css">
+    <link rel="stylesheet" href="/admin/home-settings.css">
     <style>        .card {
             background: white;
             border-radius: 12px;
@@ -157,16 +158,23 @@
                 <div class="form-group">
                     <label>站点描述</label>
                     <input type="text" id="site_description" placeholder="发现互联网的无限精彩">
+                    <div class="hint">用于首页问候语下方的副标题及页面描述；留空则不显示副标题</div>
+                </div>
+                <div class="form-group">
+                    <label for="site_url">站点地址</label>
+                    <input type="url" id="site_url" placeholder="https://nav.example.com">
+                    <div class="hint">用于分享与搜索引擎识别本站，留空使用访问地址</div>
                 </div>
                 <div class="form-group">
                     <label>站点图标 (Favicon)</label>
-                    <input type="url" id="site_icon" placeholder="https://example.com/favicon.ico">
+                    <input type="text" id="site_icon" placeholder="/ico.ico 或 https://example.com/favicon.ico">
                     <div class="hint">浏览器标签页显示的图标 URL，建议 32x32 或 64x64</div>
                 </div>
             </div>
 
             <div class="card">
                 <h2>页脚设置</h2>
+                <div class="hint">首页显示在右下角「设置」弹层中，其他公共页面显示在页脚</div>
                 <div class="form-group">
                     <label>页脚文字</label>
                     <input type="text" id="footer_text" placeholder="DogNav © 2026 — Design by CangDog">
@@ -187,11 +195,13 @@
                 <h2>主题颜色</h2>
                 <div class="form-group">
                     <label>主色</label>
-                    <input type="color" id="theme_primary_color" value="#667eea">
+                    <input type="text" id="theme_primary_color" placeholder="留空使用默认色，如 #4c8dff">
+                    <div class="hint">用于前台按钮、链接及选中状态，覆盖深浅主题的默认强调色</div>
                 </div>
                 <div class="form-group">
                     <label>辅色</label>
-                    <input type="color" id="theme_secondary_color" value="#764ba2">
+                    <input type="text" id="theme_secondary_color" placeholder="留空使用默认色，如 #e06c6c">
+                    <div class="hint">用于前台离线状态及举报等提示色</div>
                 </div>
             </div>
 
@@ -200,10 +210,38 @@
                 <div class="form-group form-check">
                     <label><input type="checkbox" id="submission_enabled"> 开放投稿（关闭后前台隐藏投稿入口并禁用投稿表单）</label>
                 </div>
-                <div class="form-group form-check">
-                    <label><input type="checkbox" id="weather_enabled"> 启用天气组件（首页显示「获取天气」）</label>
-                    <div class="hint">天气 API Key 由服务端环境变量 WEATHER_API_KEY 配置，无需在此填写。</div>
-                </div>
+            </div>
+
+            <div class="card" id="home_config">
+                <h2>首页布局与搜索</h2>
+                <p>这里设置所有访客的默认首页。访客自己的常用站点和搜索偏好优先生效。</p>
+                <p id="home_load_status" role="status"></p>
+                <button type="button" id="retryHomeBtn" hidden>重新加载分类与站点</button>
+                <fieldset id="home_fields" disabled>
+                    <div class="form-group">
+                        <label for="home_category_mode">展示分类</label>
+                        <select id="home_category_mode"><option value="all">全部分类</option><option value="custom">自选分类（不选则不展示）</option></select>
+                        <div id="home_categories" class="home-choices"></div>
+                    </div>
+                    <div class="form-group"><label for="home_category_limit">每个分类展示数量</label><input id="home_category_limit" type="number" min="1" max="12" value="5"></div>
+                    <div class="form-group">
+                        <label for="home_pinned_mode">默认常用站点</label>
+                        <select id="home_pinned_mode"><option value="auto">自动选择</option><option value="custom">自选站点（最多 12 个，不选则为空）</option></select>
+                        <div id="home_pinned" class="home-choices"></div>
+                    </div>
+                    <div class="form-group form-check">
+                        <label><input type="checkbox" id="show_recent"> 显示最近访问</label>
+                        <label><input type="checkbox" id="show_favorites"> 显示收藏</label>
+                        <label><input type="checkbox" id="show_health"> 显示站点健康状态</label>
+                        <label><input type="checkbox" id="show_read_later"> 显示稍后阅读</label>
+                    </div>
+                    <div class="form-group"><label>搜索引擎</label><p class="hint">搜索地址使用 https:// 或 http://，用 {query} 表示搜索词。标识仅使用小写字母、数字、下划线和连字符。</p><div id="home_engines"></div><button type="button" id="addEngineBtn">添加搜索引擎</button></div>
+                    <div class="form-group"><label for="home_default_engine">默认搜索引擎</label><select id="home_default_engine"></select></div>
+                </fieldset>
+                <button type="button" id="previewHomeBtn" disabled>预览当前设置</button>
+                <label for="home_preview_width">预览尺寸</label><select id="home_preview_width"><option value="desktop">桌面</option><option value="mobile">手机</option></select>
+                <p>预览包含尚未保存的修改，不写入服务器，也不使用个人偏好。修改后请再次点击预览。</p>
+                <iframe id="home_preview" title="首页设置预览" hidden></iframe>
             </div>
 
             <div class="card">
@@ -223,7 +261,8 @@
                 <button class="btn-save" id="changePwdBtn">修改密码</button>
             </div>
 
-            <button class="btn-save" id="saveSettingsBtn" style="width:100%; margin-top:20px;">保存所有设置</button>
+            <button class="btn-save" id="retrySettingsBtn" hidden>重新加载设置</button>
+            <button class="btn-save" id="saveSettingsBtn" style="width:100%; margin-top:20px;" disabled>保存修改</button>
         </div>
     </div>
 
@@ -231,6 +270,9 @@
 
     <script src="/js/utils.js"></script>
     <script src="/admin/auth.js"></script>
+    <script src="/js/home-config.js"></script>
+    <script src="/js/settings-schema.js"></script>
+    <script src="/admin/home-settings.js"></script>
     <script src="/admin/js/settings.js"></script>
 </body>
 </html>

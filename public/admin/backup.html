@@ -28,6 +28,10 @@
         .import-status { margin-top: 10px; font-size: 14px; color: #555; line-height: 1.6; }
         .import-status.success { color: #16a34a; }
         .import-status.error { color: #dc2626; }
+        .bookmark-preview { margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; background: #f8fafc; }
+        .bookmark-summary { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #334155; }
+        .bookmark-list { margin: 0 0 12px; padding-left: 18px; max-height: 240px; overflow-y: auto; font-size: 13px; color: #475569; line-height: 1.7; }
+        .bookmark-list .bm-empty { color: #94a3b8; }
 
     </style>
 </head>
@@ -72,7 +76,7 @@
         <div class="container">
             <div class="card">
                 <h2>导出数据</h2>
-                <p>将所有站点、分类、标签、友链、设置导出为 JSON 文件，可用于备份或迁移到其他服务器。</p>
+                <p>将所有站点、分类、标签、友链、设置以及本地上传的站点图标导出为 JSON 文件，可用于备份或迁移到其他服务器。</p>
                 <div class="btn-group">
                     <button class="btn btn-primary" id="exportBtn">导出 JSON</button>
                 </div>
@@ -80,7 +84,7 @@
 
             <div class="card">
                 <h2>导入数据</h2>
-                <p>从 JSON 备份文件恢复数据。注意：导入将覆盖现有数据！</p>
+                <p>从 JSON 备份文件恢复数据（含站点图标）。注意：导入将覆盖现有数据！</p>
                 <div class="btn-group">
                     <label class="file-label" for="importFile">选择文件</label>
                     <input type="file" id="importFile" class="file-input" accept=".json">
@@ -89,12 +93,20 @@
 
             <div class="card">
                 <h2>导入浏览器书签</h2>
-                <p>从 Chrome / Firefox / Edge 导出的书签 JSON 文件导入站点。会自动按文件夹生成分类，不会覆盖现有数据。导入进度到 100% 仅表示分类和站点写入完成，站点图标可在「站点管理」页批量修复。</p>
+                <p>支持 Chrome / Firefox / Edge 导出的书签 JSON 文件，以及「导出书签」生成的 Netscape HTML（.htm）文件。会先显示预览，确认后按文件夹生成分类，不会覆盖现有数据。导入进度到 100% 仅表示分类和站点写入完成，站点图标可在「站点管理」页批量修复。</p>
                 <div class="btn-group">
                     <label class="file-label" for="bookmarkFile">选择书签文件</label>
-                    <input type="file" id="bookmarkFile" class="file-input" accept=".json">
+                    <input type="file" id="bookmarkFile" class="file-input" accept=".json,.htm,.html">
                 </div>
                 <div class="file-info" id="bookmarkFileInfo" hidden></div>
+                <div class="bookmark-preview" id="bookmarkPreview" hidden>
+                    <p class="bookmark-summary" id="bookmarkSummary"></p>
+                    <ul class="bookmark-list" id="bookmarkList"></ul>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" id="bookmarkConfirmBtn">确认导入</button>
+                        <button class="btn" id="bookmarkCancelBtn">取消</button>
+                    </div>
+                </div>
                 <div class="progress-wrap" id="bookmarkProgressWrap" hidden>
                     <div class="progress-bar"><div class="progress-fill" id="bookmarkProgressFill"></div></div>
                     <div class="progress-text" id="bookmarkProgressText">0%</div>
@@ -106,6 +118,7 @@
     </div>
 
     <script src="/js/utils.js"></script>
+    <script src="/js/bookmark-parser.js"></script>
     <script src="/admin/auth.js"></script>
     <script src="/admin/js/backup.js"></script>
 </body>
