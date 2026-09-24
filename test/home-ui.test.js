@@ -1,7 +1,8 @@
 // 单页首页改版的静态 UI 契约（无浏览器，仅读源码）
 // 锁定：无顶栏（右上角浮动时钟）→ 问候 → 居中搜索（放大镜引擎入口 + ⌘K）→
 // 常用 Dock → 轻量状态区（最近/稍后阅读/收藏/服务状态[/今日事项]）→
-// 浏览区（筛选栏 全部/精选/收藏/最近/热门/最新 + 分类页内跳转行 + 完整分组卡片）；
+// 浏览区（筛选栏 全部/精选/收藏/最近/热门/最新 + 分类页内跳转行 + 完整分组卡片，
+// 卡片为 24px 小图标 + 站名的紧凑行式，无描述/标签行）；
 // 无 home/all 视图切换、无每类 5 个限制。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -95,6 +96,9 @@ test('app.js: 单页渲染、筛选/跳转调度、完整分组列表、localSto
     assert.match(appJs, /getElementById\('btnAllSites'\)/);
     assert.ok(!/const HOME_CAT_MAX/.test(appJs), '每类 5 个的限制应已移除');
     assert.ok(!/renderHomeCats/.test(appJs), '分类工作流区渲染应已移除');
+    // 卡片恢复旧首页的 24px 小图标紧凑行式：不渲染描述与标签行
+    assert.match(appJs, /buildFavIcon\(s, 24\)/);
+    assert.ok(!/card-desc|card-tags|buildTagChip/.test(appJs), '卡片应保持小图标紧凑样式，不渲染描述/标签行');
     assert.ok(!/selectCategory|defaultCategory|initialCatResolved|curC\b/.test(appJs), '分类筛选状态应已移除');
     assert.ok(!/buildTagNav|tagNav/.test(appJs), '分类标签行应已移除');
     // 搜索打分；热榜链路已整体移除（前端视图 + 后端 /api/hot/*）
@@ -134,6 +138,10 @@ test('style.css: 深色优先令牌、浮动时钟、放大镜搜索、吸顶浏
     // Dock 图标 56px、状态区 flex
     assert.match(styleCss, /\.dock-ic \{[\s\S]*?width: 56px; height: 56px/);
     assert.match(styleCss, /\.status-row \{[\s\S]*?display: flex/);
+    // 浏览区卡片：24px 小图标 + 48px 紧凑行高，无描述/标签行样式
+    assert.match(styleCss, /\.card-fav \{[\s\S]*?width: 24px; height: 24px/);
+    assert.match(styleCss, /\.card \{[\s\S]*?min-height: 48px/);
+    assert.ok(!/\.card-desc|\.card-tags|\.card-tag \{/.test(styleCss), '卡片描述/标签行样式应已移除');
     // 浏览视图卡片网格保持 4/3/2
     assert.match(styleCss, /repeat\(4, 1fr\)/);
     assert.match(styleCss, /@media \(max-width: 1024px\)[\s\S]*?repeat\(3, 1fr\)/);

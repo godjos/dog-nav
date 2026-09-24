@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════
    DESIGN SYSTEM — 个人工作台 Start Page（深色优先、克制低饱和）
-   首页：顶栏（留白+时钟）→ 问候 → 搜索 → 常用 Dock → 轻量状态 →
-   分类工作流区；右下角文字按钮进入「全部应用」二级视图。
+   单页首页：问候 → 搜索 → 常用 Dock → 轻量状态 →
+   浏览区（筛选栏 + 分类页内跳转 + 按分类完整展开的 24px 小图标紧凑卡片）。
    ═══════════════════════════════════════════ */
 :root {
     --text-xs: clamp(0.7rem, 0.66rem + 0.2vw, 0.78rem);
@@ -649,7 +649,7 @@ body {
 
 .card {
     position: relative;
-    min-height: 62px; padding: 11px 12px;
+    min-height: 48px; padding: 6px 12px;
     background: var(--bg-card);
     border: 1px solid transparent;
     border-radius: var(--r-md);
@@ -670,25 +670,16 @@ body {
     box-shadow: var(--focus-ring), var(--shadow-card);
 }
 
-.card-row { display: flex; align-items: center; gap: 10px; padding-right: 22px; }
+.card-row { display: flex; align-items: center; gap: 9px; padding-right: 22px; }
 .card-fav {
-    width: 36px; height: 36px; flex-shrink: 0;
+    width: 24px; height: 24px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px;
-    background: var(--bg-input);
-    border-radius: 10px;
-    transition: background 0.2s var(--ease);
+    font-size: 15px;
 }
-.card:hover .card-fav { background: var(--accent-soft); }
 .card-text { flex: 1; min-width: 0; }
 .card-name {
     font-size: var(--text-sm); font-weight: 600;
     color: var(--text-1); line-height: 1.3;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.card-desc {
-    font-size: var(--text-xs); color: var(--text-2);
-    margin-top: 1px; line-height: 1.4;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -724,17 +715,6 @@ body {
 .card-report:hover { color: var(--accent-2); background: var(--bg-card-hover); transform: scale(1.1); }
 .card-report.done { color: var(--accent-3); cursor: default; }
 .card-report:disabled { cursor: default; }
-
-/* Card tags */
-.card-tags { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
-.card-tag {
-    font-size: 10px; font-family: inherit;
-    padding: 1px 8px; border-radius: var(--r-pill);
-    background: var(--accent-soft); color: var(--accent);
-    border: 1px solid var(--border); cursor: pointer;
-    transition: border-color 0.2s var(--ease);
-}
-.card-tag:hover { border-color: var(--accent); }
 
 /* ═══════════════════════════════════════════
    MOBILE CATEGORY DRAWER（≤768px）
@@ -829,7 +809,7 @@ body {
 
 .skel-grid { margin-top: var(--space-md); }
 .skel-card {
-    height: 62px; border-radius: var(--r-md);
+    height: 48px; border-radius: var(--r-md);
     background: var(--bg-card); border: 1px solid var(--border);
     animation: skelPulse 1.2s ease-in-out infinite;
 }
@@ -972,10 +952,7 @@ body {
 
 @media (max-width: 480px) {
     .card-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .card { padding: 9px 10px; min-height: 56px; }
-    .card-fav { width: 28px; height: 28px; font-size: 15px; }
-    .card-desc { display: none; }
-    .card-tags { display: none; }
+    .card { padding: 6px 10px; }
     .search-wrap { height: 48px; }
     .search-input { padding-left: 50px; font-size: var(--text-sm); }
     .filter-nav { gap: 4px; }

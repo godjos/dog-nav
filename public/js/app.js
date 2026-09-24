@@ -152,28 +152,6 @@ function buildStatusDot(s) {
     return dot;
 }
 
-function isValidHexColor(c) {
-    return typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c);
-}
-
-function buildTagChip(tag) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'card-tag';
-    chip.textContent = tag.name || '';
-    if (isValidHexColor(tag.color)) {
-        chip.style.color = tag.color;
-        chip.style.borderColor = tag.color;
-    }
-    chip.title = `筛选标签：${tag.name || ''}`;
-    chip.addEventListener('click', e => {
-        e.preventDefault();
-        e.stopPropagation();
-        setTagFilter(tag);
-    });
-    return chip;
-}
-
 // 站点图标：URL 图标走 <img>（加载失败回退到首字母色块），emoji/字母等文本图标直接渲染。
 // 只有明确是 URL（http(s)://、站内绝对路径、data:image/）的图标才走 <img>——否则会被
 // sanitizeUrl 解析成同源相对地址，每张卡片白走一次 404 再落回兜底。
@@ -222,30 +200,19 @@ function buildCard(s) {
 
     const row = document.createElement('div');
     row.className = 'card-row';
-    const fav = buildFavIcon(s);
+    const fav = buildFavIcon(s, 24);
     fav.className = 'card-fav';
 
     const nameEl = document.createElement('div');
     nameEl.className = 'card-name';
     nameEl.textContent = name;
 
-    const descEl = document.createElement('div');
-    descEl.className = 'card-desc';
-    descEl.textContent = desc;
-
     const textCol = document.createElement('div');
     textCol.className = 'card-text';
-    textCol.append(nameEl, descEl);
+    textCol.append(nameEl);
 
     row.append(fav, textCol, buildStatusDot(s));
     a.append(row);
-
-    if (Array.isArray(s.tags) && s.tags.length > 0) {
-        const tagsRow = document.createElement('div');
-        tagsRow.className = 'card-tags';
-        s.tags.slice(0, 3).forEach(t => tagsRow.appendChild(buildTagChip(t)));
-        a.appendChild(tagsRow);
-    }
 
     if (id) {
         const pin = document.createElement('button');

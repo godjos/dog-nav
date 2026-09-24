@@ -47,7 +47,7 @@
 
 ## Components
 - Home 组件: `.top-clock`（右上角浮动日期时间，≤768px 隐藏）；`.hero`（`#greet` + `.greet-sub`）；`.search-wrap`（`.search-ico` 放大镜按钮点开 `.eng-menu` 引擎菜单、⌘K/Ctrl K kbd 提示、深色极弱蓝边 + 柔光、focus accent ring）；`.dock`（`.dock-item` = 56px 图标盒 + 站名，空态显示 `.dock-hint` 引导）；`.status-row`（flex，最近使用 1.6 倍宽，4–5 张 `.st-card`）；`.browse`（`.browse-head` 桌面 sticky 吸顶 = `.filter-nav` 筛选 pill 行（全部/精选/收藏/最近/热门/最新 + `.tag-chip`）+ `.cat-nav` 分类跳转行（`.cat-pills` + 更多菜单 `.cat-more-menu` / 移动端 `.cat-drawer`），激活态随滚动同步）；`.cards-area`（`.sec-head` 分类标题即跳转锚点（`scroll-margin-top` 预留吸顶头部高度）+ `.card-grid` 完整分组卡片，无每类数量限制）；`.bottom-nav`（右下角带小图标的文字按钮）；`.set-pop`（主题分段控件/清除本地数据/页面链接）
-- 浏览区复用组件: `.cat-pill`（筛选行实心、跳转行幽灵两种形态）、`.tag-chip`/`.tag-chip-x`、`.card`（图标 36px + 名称 + 单行描述 + 状态点）、`.report-panel`、`.toast`、`.skel-card`、`.loader`、`.btt`
+- 浏览区复用组件: `.cat-pill`（筛选行实心、跳转行幽灵两种形态）、`.tag-chip`/`.tag-chip-x`、`.card`（24px 小图标 + 站名 + 状态点的紧凑行式卡片，无描述/标签行）、`.report-panel`、`.toast`、`.skel-card`、`.loader`、`.btt`
 - Variants and states: light/dark；搜索 focus-within（accent 边框 + glow）；Dock item hover -3px / focus-visible；状态卡 hover（`.st-click`）；跳转 pill 的 on（scrollspy）/hover/focus-visible，筛选 pill 的 on（实心 accent）/hover；卡片 📌/☆/⚑ 的 on/hover（⚑ 桌面 hover 显现）；设置弹层 open
 - Token/component ownership: 首页视觉 token 全部在 `public/css/style.css` 的 `:root` / `[data-theme]`；`settings-loader.js` 仍可通过 `--accent`/`--accent-2` 覆盖主题色（保留后台主题色设置能力）
 
