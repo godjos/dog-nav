@@ -2,10 +2,10 @@
 // DogNav 首页脚本（个人工作台 Start Page）
 // 站点设置（favicon、标题、主题色、页脚、投稿开关）由
 // /js/settings-loader.js 统一加载。
-// 两个视图：home = 工作台首页（问候/时钟 → 搜索 → 常用 Dock →
-// 轻量状态 → 分类工作流区）；all = 全部应用（分类 + 精选/收藏/最近/
-// 热门/最新，由右下角「全部应用」进入）。搜索、收藏、最近访问、
-// 点击统计等业务逻辑两端视图共用。
+// 单页结构：问候/时钟 → 搜索 → 常用 Dock → 轻量状态 →
+// 浏览区（筛选栏 全部/精选/收藏/最近/热门/最新 + 分类页内跳转 +
+// 按分类完整展开的分组卡片）。分类只用于分组与页内跳转，不再限制
+// 可见站点。搜索、收藏、最近访问、点击统计等业务逻辑全页共用。
 // ═══════════════════════════════════════════
 
 // ═══════════════════════════════════════════
@@ -44,10 +44,8 @@ const VIEW_META = {
     new: { i: '🆕', l: '最近新增' },
 };
 
-let curE = 'baidu', curC = 'all', curView = 'all', curTag = null;
-let pageView = 'home'; // 'home' 工作台首页 | 'all' 全部应用
+let curE = 'baidu', curView = 'all', curTag = null;
 let sitesLoaded = false; // /api/sites 成功返回后才为 true
-let initialCatResolved = false; // 首屏默认分类（推荐 → 第一个有效分类）只解析一次
 
 // ═══════════════════════════════════════════
 // LOCAL STORAGE — 收藏与最近访问（无账号）
@@ -280,6 +278,7 @@ function buildCard(s) {
             e.preventDefault();
             e.stopPropagation();
             toggleFav(id);
+            renderStatusRow(); // 状态行收藏计数随 ☆ 同步
             const on = isFav(id);
             star.classList.toggle('on', on);
             star.textContent = on ? '★' : '☆';
@@ -431,7 +430,6 @@ document.addEventListener('keydown', e => {
 });
 
 function siteMatchesFilters(s) {
-    if (curC !== 'all' && s.category !== curC) return false;
     if (curTag && !(Array.isArray(s.tags) && s.tags.some(t => String(t.id) === String(curTag.id) || t.name === curTag.name))) return false;
     if (curView === 'featured' && !s.is_featured) return false;
     return true;
@@ -443,9 +441,14 @@ function parseSqliteTime(v) {
     return isNaN(d) ? 0 : d.getTime();
 }
 
-function buildSecHead(icon, label) {
+function buildSecHead(icon, label, catId) {
     const secHead = document.createElement('div');
     secHead.className = 'sec-head rv';
+    if (catId) {
+        // 分类分组标题同时是页内跳转锚点（分类跳转行 scrollIntoView 到此）
+        secHead.id = 'sec-' + catId;
+        secHead.dataset.cat = catId;
+    }
     const secIco = document.createElement('div');
     secIco.className = 'sec-ico';
     secIco.textContent = icon;
@@ -501,7 +504,7 @@ function pinnedSites() {
         .filter(s => s && s.status === 'active');
 }
 
-// Dock：8~10 个高频入口，图标为视觉主体；固定/移除在「全部应用」卡片 📌 上操作
+// Dock：8~10 个高频入口，图标为视觉主体；固定/移除在下方站点卡片 📌 上操作
 function renderDock() {
     const dock = document.getElementById('dockBar');
     const hint = document.getElementById('dockHint');
@@ -644,107 +647,53 @@ function renderStatusRow() {
     }
 }
 
-// 分类工作流区：左侧分类标题纵向居中，右侧一行 5 个紧凑站点 + › 查看全部
-const HOME_CAT_MAX = 5;
-function renderHomeCats() {
-    const box = document.getElementById('catSections');
-    if (!box) return;
-    box.textContent = '';
-    const categories = homeConfig.category_ids === null ? Object.entries(C) : homeConfig.category_ids.filter(id => C[id]).map(id => [id, C[id]]);
-    categories.forEach(([id, c]) => {
-        const all = S.filter(s => s.category === id);
-        if (all.length === 0) return;
-        const items = all.slice(0, homeConfig.category_limit || HOME_CAT_MAX);
-        const sec = document.createElement('section');
-        sec.className = 'wf-sec';
-        const head = document.createElement('div');
-        head.className = 'wf-head';
-        const title = document.createElement('h2');
-        title.className = 'wf-title';
-        title.textContent = c.l;
-        head.appendChild(title);
-        const grid = document.createElement('div');
-        grid.className = 'wf-grid';
-        items.forEach(s => {
-            const url = sanitizeUrl(s.url);
-            if (!url) return;
-            const a = document.createElement('a');
-            a.className = 'wf-item';
-            a.href = url;
-            a.target = '_blank';
-            a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
-            a.title = s.name;
-            const ic = buildFavIcon(s, 24);
-            ic.className = 'wf-ic';
-            const nm = document.createElement('span');
-            nm.className = 'wf-item-name';
-            nm.textContent = s.name;
-            a.append(ic, nm);
-            a.addEventListener('click', () => {
-                if (s.id) {
-                    addRecent(s.id);
-                    trackClick(String(s.id));
-                }
-            });
-            grid.appendChild(a);
-        });
-        const more = document.createElement('button');
-        more.type = 'button';
-        more.className = 'wf-more';
-        more.textContent = '›';
-        more.title = `查看全部分类「${c.l}」（共 ${all.length} 个）`;
-        more.setAttribute('aria-label', more.title);
-        more.addEventListener('click', () => openAllView(id));
-        sec.append(head, grid, more);
-        box.appendChild(sec);
-    });
-}
-
 function renderHome() {
     renderDock();
     renderStatusRow();
     document.getElementById('stRecent').hidden = !homeConfig.show_recent;
     document.getElementById('stFav').hidden = !homeConfig.show_favorites;
     document.getElementById('stHealth').hidden = !homeConfig.show_health;
-    renderHomeCats();
 }
 
-// 视图切换：home（工作台）↔ all（全部应用，承载分类/精选/热门/最新/收藏/最近）
-function openAllView(target) {
-    pageView = 'all';
-    document.getElementById('homeView').hidden = true;
-    document.getElementById('allView').hidden = false;
-    const btn = document.getElementById('btnAllApps');
-    if (btn) btn.textContent = '返回首页';
-    if (target && VIEW_META[target]) {
-        selectView(target);
-    } else if (typeof target === 'string' && target && C[target]) {
-        selectCategory(target);
-    } else {
+// ═══════════════════════════════════════════
+// BROWSE — 浏览区：筛选栏（全部/精选/收藏/最近/热门/最新）+
+// 分类页内跳转 + 按分类完整展开的分组卡片（无每类数量限制）
+// ═══════════════════════════════════════════
+function scrollBrowseHead() {
+    const head = document.getElementById('browseHead');
+    if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 分类跳转只滚动到对应分组标题，不决定可见站点；非「全部」筛选下先恢复完整分组
+function jumpToCategory(id) {
+    if (curView !== 'all' || curTag) {
+        curView = 'all';
+        curTag = null;
+        updateTagChip();
         render();
     }
-    window.scrollTo({ top: 0 });
-    layoutCatPills();
+    const head = id ? document.getElementById('sec-' + id) : null;
+    if (head) requestAnimationFrame(() => head.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    else scrollBrowseHead();
 }
 
-function goHome() {
-    pageView = 'home';
-    document.getElementById('allView').hidden = true;
-    document.getElementById('homeView').hidden = false;
-    const btn = document.getElementById('btnAllApps');
-    if (btn) btn.textContent = '全部应用';
+function selectView(view) {
+    if (view !== 'all' && !VIEW_META[view]) return;
+    curView = view;
+    curTag = null;
+    updateTagChip();
     render();
-    window.scrollTo({ top: 0 });
+    // 筛选切换后让浏览区头部回到视口顶部附近，避免长列表停在中间
+    scrollBrowseHead();
 }
 
-function render() {
-    if (!sitesLoaded) return; // 数据未就绪：保留加载/错误态，不覆盖
-    if (pageView === 'home') { renderHome(); return; }
+function renderBrowse() {
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
+    document.getElementById('catNav').hidden = curView !== 'all';
+    buildCatJump();
     updateNavHighlight();
-    buildTagNav();
 
     if (S.length === 0) {
         a.appendChild(buildNote('暂无站点，欢迎投稿。', '去投稿 →', 'contribute.html'));
@@ -754,21 +703,14 @@ function render() {
     const items = S.filter(siteMatchesFilters);
 
     if (curView === 'all') {
-        if (curC === 'all') {
-            // 「全部」模式：Kaka 式分组导航——分类标题 + 分隔线 + 该分类网站
-            const g = {};
-            items.forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
-            const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
-            for (const k of orderedKeys) {
-                const c = C[k] || { i: '📁', l: k };
-                a.appendChild(buildSecHead(c.i, c.l));
-                a.appendChild(buildCardGrid(g[k]));
-            }
-        } else {
-            // 默认单分类：分组标题简化（导航行已高亮当前分类）
-            const c = C[curC] || { i: '📁', l: curC };
-            a.appendChild(buildSecHead(c.i, c.l));
-            a.appendChild(buildCardGrid(items));
+        // 「全部」：分类标题（页内跳转锚点）+ 该分类全部站点，默认完整展开
+        const g = {};
+        items.forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
+        const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
+        for (const k of orderedKeys) {
+            const c = C[k] || { i: '📁', l: k };
+            a.appendChild(buildSecHead(c.i, c.l, k));
+            a.appendChild(buildCardGrid(g[k]));
         }
     } else {
         let viewItems = items;
@@ -799,28 +741,27 @@ function render() {
         a.appendChild(buildCardGrid(viewItems));
     }
 
-    // 「全部」视图 + 筛选条件下也可能为空
+    // 「全部」+ 标签筛选下也可能为空
     if (!a.hasChildNodes()) {
         a.appendChild(buildNote('没有符合当前筛选条件的站点。', null, null, '清除筛选', clearFilters));
         return;
     }
 
+    initCatSpy();
     initReveal();
 }
 
+function render() {
+    if (!sitesLoaded) return; // 数据未就绪：保留加载/错误态，不覆盖
+    renderHome();
+    renderBrowse();
+}
+
 function clearFilters() {
-    curC = defaultCategory();
     curView = 'all';
     curTag = null;
     updateTagChip();
     render();
-}
-
-// 默认分类：推荐优先，其次第一个有效分类，最后才退回「全部」
-function defaultCategory() {
-    if (C['recommend']) return 'recommend';
-    const first = Object.keys(C)[0];
-    return first || 'all';
 }
 
 // ═══════════════════════════════════════════
@@ -1129,61 +1070,81 @@ document.addEventListener('click', e => {
 })();
 
 // ═══════════════════════════════════════════
-// CATEGORY / VIEW / TAG FILTER — 分类与模式互斥
+// FILTER / JUMP / TAG — 筛选栏互斥，分类跳转只滚动不筛选
 // ═══════════════════════════════════════════
-function selectCategory(id) {
-    curC = id;
-    curView = 'all';
-    curTag = null;
-    updateTagChip();
-    render();
-}
-
-function selectView(view) {
-    curView = view;
-    curC = 'all';
-    curTag = null;
-    updateTagChip();
-    render();
-    // 模式切换后让面板头部回到视口顶部附近，避免长列表停在中间
-    const head = document.querySelector('.panel-head');
-    if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function updateNavHighlight() {
-    // 分类行：仅在普通浏览（curView==='all'）时高亮分类
-    document.querySelectorAll('#catPills .cat-pill, #catMoreMenu .cat-pill').forEach(x => {
-        x.classList.toggle('on', curView === 'all' && x.dataset.cat === curC);
-    });
-    // 模式行
+    // 筛选栏（全部/精选/收藏/最近/热门/最新）
     document.querySelectorAll('.view-pill').forEach(x => {
-        x.classList.toggle('on', curView === x.dataset.view);
-    });
-    // 移动端抽屉
-    document.querySelectorAll('#drawerCats .drawer-item').forEach(x => {
-        x.classList.toggle('on', curView === 'all' && x.dataset.cat === curC);
+        const on = curView === x.dataset.view;
+        x.classList.toggle('on', on);
+        x.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     document.querySelectorAll('#drawerModes .drawer-item').forEach(x => {
         x.classList.toggle('on', curView === x.dataset.view);
     });
-    syncMoreBtnLabel();
 }
 
 function syncMoreBtnLabel() {
     const btn = document.getElementById('catMoreBtn');
     if (!btn) return;
-    const activeInMenu = curView === 'all' &&
-        document.querySelector('#catMoreMenu .cat-pill.on') !== null;
+    const activeInMenu = document.querySelector('#catMoreMenu .cat-pill.on') !== null;
     btn.classList.toggle('has-active', activeInMenu);
+}
+
+// 分类跳转行与抽屉列表：只列出当前有可见站点的分类（无站点分类无跳转锚点）
+function buildCatJump() {
+    const has = new Set(S.map(s => s.category));
+    const active = Object.entries(C).filter(([id]) => has.has(id));
+
+    const pills = document.getElementById('catPills');
+    const menu = document.getElementById('catMoreMenu');
+    pills.textContent = '';
+    menu.textContent = '';
+    active.forEach(([id, c]) => pills.appendChild(buildCatPill(id, c.i, c.l)));
+
+    const drawerCats = document.getElementById('drawerCats');
+    drawerCats.textContent = '';
+    active.forEach(([id, c]) => drawerCats.appendChild(buildDrawerItem('cat', id, `${c.i || '📁'} ${c.l}`)));
+
+    layoutCatPills();
+}
+
+// 滚动位置同步分类跳转行的高亮（仅「全部」分组模式下有分组标题）
+let catSpy = null;
+function initCatSpy() {
+    if (catSpy) { catSpy.disconnect(); catSpy = null; }
+    const heads = [...document.querySelectorAll('#cardsArea .sec-head[data-cat]')];
+    document.querySelectorAll('#catPills .cat-pill, #catMoreMenu .cat-pill').forEach(x => {
+        x.classList.remove('on');
+        x.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('#drawerCats .drawer-item').forEach(x => x.classList.remove('on'));
+    if (curView !== 'all' || heads.length === 0) { syncMoreBtnLabel(); return; }
+    const setActive = id => {
+        document.querySelectorAll('#catPills .cat-pill, #catMoreMenu .cat-pill').forEach(x => {
+            const on = x.dataset.cat === id;
+            x.classList.toggle('on', on);
+            if (on) x.setAttribute('aria-current', 'true');
+            else x.removeAttribute('aria-current');
+        });
+        document.querySelectorAll('#drawerCats .drawer-item').forEach(x => {
+            x.classList.toggle('on', x.dataset.cat === id);
+        });
+        syncMoreBtnLabel();
+    };
+    catSpy = new IntersectionObserver(entries => {
+        entries.forEach(en => { if (en.isIntersecting) setActive(en.target.dataset.cat); });
+    }, { rootMargin: '-40% 0px -55% 0px' });
+    heads.forEach(h => catSpy.observe(h));
 }
 
 document.getElementById('catPills').addEventListener('click', e => {
     const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
-    selectCategory(p.dataset.cat);
+    jumpToCategory(p.dataset.cat);
 });
 document.getElementById('catMoreMenu').addEventListener('click', e => {
     const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
-    selectCategory(p.dataset.cat);
+    jumpToCategory(p.dataset.cat);
     document.getElementById('catMoreMenu').hidden = true;
     document.getElementById('catMoreBtn').setAttribute('aria-expanded', 'false');
 });
@@ -1202,7 +1163,7 @@ document.addEventListener('click', e => {
     }
 });
 
-document.getElementById('viewBar').addEventListener('click', e => {
+document.getElementById('filterBar').addEventListener('click', e => {
     const p = e.target.closest('.view-pill'); if (!p) return;
     selectView(p.dataset.view);
 });
@@ -1214,8 +1175,8 @@ function setTagFilter(tag) {
         curTag = { id: tag.id, name: tag.name };
     }
     updateTagChip();
-    buildTagNav();
     render();
+    scrollBrowseHead();
 }
 
 function updateTagChip() {
@@ -1231,39 +1192,12 @@ function updateTagChip() {
     x.className = 'tag-chip-x';
     x.textContent = '✕';
     x.setAttribute('aria-label', '清除标签筛选');
-    x.addEventListener('click', () => { curTag = null; updateTagChip(); buildTagNav(); render(); });
+    x.addEventListener('click', () => { curTag = null; updateTagChip(); render(); });
     chip.append(label, x);
 }
 
-// 可选第二级导航：当前分类存在标签时显示标签筛选
-function buildTagNav() {
-    const nav = document.getElementById('tagNav');
-    if (!nav) return;
-    nav.textContent = '';
-    const show = curView === 'all' && curC !== 'all';
-    if (!show) { nav.hidden = true; return; }
-    const scope = S.filter(s => s.category === curC);
-    const byId = new Map();
-    scope.forEach(s => (Array.isArray(s.tags) ? s.tags : []).forEach(t => {
-        if (t && t.name && !byId.has(String(t.id))) byId.set(String(t.id), t);
-    }));
-    if (byId.size === 0) { nav.hidden = true; return; }
-    [...byId.values()].forEach(t => {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'tag-filter-chip';
-        chip.textContent = `# ${t.name}`;
-        const active = curTag && String(curTag.id) === String(t.id);
-        chip.classList.toggle('on', !!active);
-        chip.setAttribute('aria-pressed', active ? 'true' : 'false');
-        chip.addEventListener('click', () => setTagFilter(t));
-        nav.appendChild(chip);
-    });
-    nav.hidden = false;
-}
-
 // ═══════════════════════════════════════════
-// CATEGORY DRAWER（移动端分类/模式抽屉；全部应用视图内使用）
+// CATEGORY DRAWER（移动端分类跳转/筛选抽屉；浏览区内使用）
 // ═══════════════════════════════════════════
 (function initCatDrawer() {
     const drawer = document.getElementById('catDrawer');
@@ -1290,7 +1224,7 @@ function buildTagNav() {
     // 抽屉列表在 applyCategories 填充；选择后关闭抽屉
     drawer.addEventListener('click', e => {
         const item = e.target.closest('.drawer-item'); if (!item) return;
-        if (item.dataset.cat !== undefined) selectCategory(item.dataset.cat);
+        if (item.dataset.cat !== undefined) jumpToCategory(item.dataset.cat);
         else if (item.dataset.view) selectView(item.dataset.view);
         closeDrawer();
     });
@@ -1445,20 +1379,18 @@ document.addEventListener('keydown', e => {
 
 // 顶栏已移除：时钟为右上角浮动元素，主题切换在设置弹层内（见下方 syncThemeSeg）
 
-// 右下角底部工具：全部应用 / 最近使用 / 设置
-document.getElementById('btnAllApps').addEventListener('click', () => {
-    if (pageView === 'home') openAllView(); else goHome();
-});
-document.getElementById('btnRecentView').addEventListener('click', () => openAllView('recent'));
+// 右下角底部工具：全部站点（回到完整分组列表）/ 最近使用 / 设置
+document.getElementById('btnAllSites').addEventListener('click', () => selectView('all'));
+document.getElementById('btnRecentView').addEventListener('click', () => selectView('recent'));
 
-// 状态卡点击：最近使用「全部 ›」与收藏卡进入对应全部应用视图
+// 状态卡点击：最近使用「全部 ›」与收藏卡切换到对应筛选，在同一浏览区显示结果
 document.getElementById('statusRow').addEventListener('click', e => {
     const more = e.target.closest('[data-open]');
-    if (more) { openAllView(more.dataset.open); return; }
-    if (e.target.closest('#stFav')) openAllView('fav');
+    if (more) { selectView(more.dataset.open === 'health' ? 'all' : more.dataset.open); return; }
+    if (e.target.closest('#stFav')) selectView('fav');
 });
 document.getElementById('stFav').addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAllView('fav'); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectView('fav'); }
 });
 
 // 设置弹层：主题切换 + 清除本地数据 + 自定义页面
@@ -1533,6 +1465,8 @@ function layoutCatPills() {
     const menuEl = document.getElementById('catMoreMenu');
     if (!pillsEl || !moreEl || !menuEl) return;
     if (window.innerWidth <= 768) { moreEl.hidden = true; return; }
+    // 容器不可见（如分类跳转行处于隐藏状态）时无法实测宽度，保持原样
+    if (pillsEl.getClientRects().length === 0) { moreEl.hidden = true; return; }
     // 重置：菜单里的 pill 先全部放回
     while (menuEl.firstChild) pillsEl.appendChild(menuEl.firstChild);
     moreEl.hidden = true;
@@ -1541,9 +1475,9 @@ function layoutCatPills() {
     const fitsWithMore = () => pillsWidth() + moreEl.offsetWidth + gap <= pillsEl.clientWidth + 1;
     if (pillsWidth() <= pillsEl.clientWidth + 1) { syncMoreBtnLabel(); return; }
     moreEl.hidden = false;
-    // 从末尾往前（跳过第一个「全部」）搬入菜单，直到放得下
+    // 从末尾往前搬入菜单，直到放得下
     let i = pillsEl.children.length - 1;
-    while (i > 0 && !fitsWithMore()) {
+    while (i >= 0 && !fitsWithMore()) {
         menuEl.prepend(pillsEl.children[i]);
         i--;
     }
@@ -1576,35 +1510,12 @@ function applyCategories(apiCats) {
         C[c.id] = { i: c.icon || '📁', l: c.name };
     });
 
-    // 首屏默认分类：推荐优先，其次第一个有效分类
-    if (!initialCatResolved) {
-        curC = defaultCategory();
-        initialCatResolved = true;
-    } else if (curC !== 'all' && !C[curC]) {
-        // 重载后原分类被停用/删除：回落到默认分类
-        curC = defaultCategory();
-    }
-
-    const pills = document.getElementById('catPills');
-    pills.textContent = '';
-    const allBtn = document.createElement('button');
-    allBtn.type = 'button';
-    allBtn.className = 'cat-pill';
-    allBtn.dataset.cat = 'all';
-    allBtn.textContent = '全部';
-    pills.appendChild(allBtn);
-    active.forEach(c => pills.appendChild(buildCatPill(c.id, c.icon, c.name)));
-
-    // 移动端抽屉列表
-    const drawerCats = document.getElementById('drawerCats');
+    // 移动端抽屉的筛选模式（分类跳转列表随渲染按可见站点重建，见 buildCatJump）
     const drawerModes = document.getElementById('drawerModes');
-    drawerCats.textContent = '';
-    drawerCats.appendChild(buildDrawerItem('cat', 'all', '全部'));
-    active.forEach(c => drawerCats.appendChild(buildDrawerItem('cat', c.id, `${c.icon || '📁'} ${c.name}`)));
     drawerModes.textContent = '';
+    drawerModes.appendChild(buildDrawerItem('view', 'all', '全部'));
     Object.entries(VIEW_META).forEach(([id, m]) => drawerModes.appendChild(buildDrawerItem('view', id, `${m.i} ${m.l}`)));
 
-    layoutCatPills();
     updateNavHighlight();
 }
 
@@ -1729,7 +1640,7 @@ document.getElementById('editDock').addEventListener('click', event => {
     document.getElementById('dockEditActions').hidden = !dockEditing;
     renderDock();
 });
-document.getElementById('addDock').addEventListener('click', () => openAllView());
+document.getElementById('addDock').addEventListener('click', () => selectView('all'));
 document.getElementById('resetDock').addEventListener('click', () => {
     if (!confirm('恢复管理员推荐的常用入口？你的自定义顺序将被替换。')) return;
     if (!previewMode) localStorage.removeItem('dognav-pinned');

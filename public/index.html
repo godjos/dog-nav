@@ -38,7 +38,7 @@
 
 <span class="top-clock" id="clock" aria-label="当前日期时间"></span>
 
-<!-- ═══ 工作台首页（默认视图） ═══ -->
+<!-- ═══ 单页首页：搜索 → 常用 Dock → 轻量状态 → 筛选栏 → 全部分类站点 ═══ -->
 <main class="home" id="homeView">
     <div id="homeLoadState" role="status" aria-live="polite" hidden></div>
     <section class="hero">
@@ -67,7 +67,7 @@
             <span id="dockEditActions" hidden><button type="button" class="note-btn" id="addDock">添加站点</button><button type="button" class="note-btn" id="resetDock">恢复默认</button></span>
         </div>
         <div class="dock" id="dockBar"></div>
-        <p class="dock-hint" id="dockHint" hidden>在「全部应用」中点卡片上的 📌，把常用站点固定到这里</p>
+        <p class="dock-hint" id="dockHint" hidden>在下方站点列表中，点卡片上的 📌 把常用站点固定到这里</p>
     </section>
 
     <section class="status-row" id="statusRow" aria-label="工作台状态">
@@ -93,35 +93,32 @@
         </div>
     </section>
 
-    <section class="cat-sections" id="catSections" aria-label="分类导航"></section>
-</main>
-
-<!-- ═══ 全部应用（二级浏览视图：分类 + 精选/收藏/最近/热门/最新） ═══ -->
-<main class="panel" id="allView" hidden>
-    <div class="panel-head">
-        <nav class="cat-nav" id="catNav" aria-label="站点分类">
-            <div class="cat-pills" id="catPills"></div>
-            <div class="cat-more" id="catMore" hidden>
-                <button type="button" class="cat-pill cat-more-btn" id="catMoreBtn" aria-haspopup="true" aria-expanded="false">更多 ▾</button>
-                <div class="cat-more-menu" id="catMoreMenu" hidden></div>
-            </div>
-            <button type="button" class="cat-drawer-btn" id="catDrawerBtn" aria-label="打开分类菜单">☰ 分类</button>
-        </nav>
-        <nav class="mode-nav" id="viewBar" aria-label="内容模式">
-            <button class="cat-pill view-pill" data-view="featured">⭐ 精选</button>
-            <button class="cat-pill view-pill" data-view="fav">❤️ 收藏</button>
-            <button class="cat-pill view-pill" data-view="recent">🕘 最近</button>
-            <button class="cat-pill view-pill" data-view="hot">🔥 热门</button>
-            <button class="cat-pill view-pill" data-view="new">🆕 最新</button>
-            <span class="tag-chip" id="tagFilterChip" hidden></span>
-        </nav>
-        <div class="tag-nav" id="tagNav" hidden></div>
-    </div>
-    <div class="cards-area" id="cardsArea"></div>
+    <section class="browse" id="browse" aria-label="全部站点">
+        <div class="browse-head" id="browseHead">
+            <nav class="filter-nav" id="filterBar" aria-label="内容筛选">
+                <button type="button" class="cat-pill view-pill on" data-view="all" aria-pressed="true">全部</button>
+                <button type="button" class="cat-pill view-pill" data-view="featured" aria-pressed="false">⭐ 精选</button>
+                <button type="button" class="cat-pill view-pill" data-view="fav" aria-pressed="false">❤️ 收藏</button>
+                <button type="button" class="cat-pill view-pill" data-view="recent" aria-pressed="false">🕘 最近</button>
+                <button type="button" class="cat-pill view-pill" data-view="hot" aria-pressed="false">🔥 热门</button>
+                <button type="button" class="cat-pill view-pill" data-view="new" aria-pressed="false">🆕 最新</button>
+                <span class="tag-chip" id="tagFilterChip" hidden></span>
+            </nav>
+            <nav class="cat-nav" id="catNav" aria-label="分类跳转">
+                <div class="cat-pills" id="catPills"></div>
+                <div class="cat-more" id="catMore" hidden>
+                    <button type="button" class="cat-pill cat-more-btn" id="catMoreBtn" aria-haspopup="true" aria-expanded="false">更多 ▾</button>
+                    <div class="cat-more-menu" id="catMoreMenu" hidden></div>
+                </div>
+                <button type="button" class="cat-drawer-btn" id="catDrawerBtn" aria-label="打开分类菜单">☰ 分类</button>
+            </nav>
+        </div>
+        <div class="cards-area" id="cardsArea"></div>
+    </section>
 </main>
 
 <nav class="bottom-nav" id="bottomNav" aria-label="页面工具">
-    <button type="button" class="bn-btn" id="btnAllApps">⊞ 全部应用</button>
+    <button type="button" class="bn-btn" id="btnAllSites">⊞ 全部站点</button>
     <button type="button" class="bn-btn" id="btnRecentView">◷ 最近使用</button>
     <button type="button" class="bn-btn" id="btnSettings" aria-haspopup="true" aria-expanded="false">⚙ 设置</button>
 </nav>

@@ -6,6 +6,9 @@
     let locked = true;
     let rawConfig = '';
     let previewSettings = null;
+    // 「展示分类 / 每类展示数量」控件已移除；保存时从既有配置原样回写这两个历史字段
+    let preservedCategoryIds = null;
+    let preservedCategoryLimit = 5;
 
     function option(value, label, selected) {
         const el = document.createElement('option');
@@ -56,8 +59,10 @@
             return { id: inputs[0].value, name: inputs[1].value, url: inputs[2].value };
         });
         const config = {
-            category_ids: byId('home_category_mode').value === 'all' ? null : selectedValues('home_categories'),
-            category_limit: Number(byId('home_category_limit').value),
+            // 「展示分类 / 每类展示数量」控件已随单页首页下线：这里原样回写
+            // 既有配置中的历史值，保存其他设置时不丢失
+            category_ids: preservedCategoryIds,
+            category_limit: preservedCategoryLimit,
             pinned_ids: byId('home_pinned_mode').value === 'auto' ? null : selectedValues('home_pinned').map(Number),
             default_engine: byId('home_default_engine').value,
             engines
@@ -69,23 +74,21 @@
         rawConfig = raw || JSON.stringify(DogNavHomeConfig.DEFAULTS);
         ready = false; setDisabled(locked);
         byId('retryHomeBtn').hidden = true;
-        byId('home_load_status').textContent = '正在加载分类与站点…';
+        byId('home_load_status').textContent = '正在加载站点…';
         try {
-            const responses = await Promise.all([fetch('/api/categories'), fetch('/api/sites')]);
-            if (responses.some(response => !response.ok)) throw new Error('加载失败');
-            const [categories, sites] = await Promise.all(responses.map(response => response.json()));
-            if (!Array.isArray(categories) || !Array.isArray(sites)) throw new Error('数据格式错误');
+            const response = await fetch('/api/sites');
+            if (!response.ok) throw new Error('加载失败');
+            const sites = await response.json();
+            if (!Array.isArray(sites)) throw new Error('数据格式错误');
             const validation = DogNavHomeConfig.validate(rawConfig);
             if (validation.error) throw new Error(validation.error);
             const config = validation.value;
-            byId('home_category_mode').value = config.category_ids === null ? 'all' : 'custom';
+            preservedCategoryIds = config.category_ids;
+            preservedCategoryLimit = config.category_limit;
             byId('home_pinned_mode').value = config.pinned_ids === null ? 'auto' : 'custom';
-            byId('home_categories').replaceChildren(...categories.map(c => checkbox(c.id, c.name, config.category_ids?.includes(String(c.id)))));
-            // Preserve references to removed entries until an administrator explicitly clears them.
-            for (const id of config.category_ids || []) if (!categories.some(c => String(c.id) === id)) byId('home_categories').append(checkbox(id, `已移除分类：${id}`, true));
             byId('home_pinned').replaceChildren(...sites.map(s => checkbox(s.id, s.name, config.pinned_ids?.includes(Number(s.id)))));
+            // Preserve references to removed entries until an administrator explicitly clears them.
             for (const id of config.pinned_ids || []) if (!sites.some(s => Number(s.id) === id)) byId('home_pinned').append(checkbox(id, `已移除站点：${id}`, true));
-            byId('home_category_limit').value = config.category_limit;
             flags.forEach(key => byId(key).checked = config[key]);
             byId('home_engines').replaceChildren(); config.engines.forEach(addEngine);
             refreshDefaultEngine(config.default_engine);
