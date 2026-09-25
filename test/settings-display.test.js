@@ -83,9 +83,17 @@ test('后台设置应用到首页描述、名称、图标、页脚链接、主�
     assert.equal(page.elements.get('footerGithubLink').href, 'https://github.com/example');
     assert.equal(page.elements.get('footerBlogWrap').style.display, '');
     assert.equal(page.colors['--accent'], '#123456');
+    assert.equal(page.colors['--accent-on'], '#fff');
     assert.equal(page.colors['--accent-2'], '#abcdef');
     assert.equal(page.colors['--accent-soft'], 'rgba(18, 52, 86, 0.12)');
     assert.equal(page.submission.style.display, 'none');
+});
+
+test('强调色上的文字随背景亮度选择对比色', async () => {
+    const page = await load({ theme_primary_color: '#667eea' });
+    assert.equal(page.colors['--accent-on'], '#0d1420');
+    const dark = await load({ theme_primary_color: 'rgb(12, 34, 56)' });
+    assert.equal(dark.colors['--accent-on'], '#fff');
 });
 
 test('清空描述和页脚隐藏内容，空或非法外链不会显示', async () => {

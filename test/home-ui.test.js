@@ -130,6 +130,8 @@ test('style.css: 深色优先令牌、浮动时钟、放大镜搜索、吸顶浏
     // 浏览区：筛选行 + 分类跳转行（幽灵 pill）+ 吸顶头部 + 锚点偏移
     assert.match(styleCss, /\.filter-nav \{[\s\S]*?display: flex/);
     assert.match(styleCss, /\.browse-head \{[\s\S]*?position: sticky/);
+    assert.match(styleCss, /@media \(max-width: 768px\)[\s\S]*?\.browse-head \{[^}]*position: static/);
+    assert.match(styleCss, /\.tag-chip \{[^}]*display: inline-flex/);
     assert.match(styleCss, /\.cat-nav \.cat-pill \{[\s\S]*?background: transparent/);
     assert.match(styleCss, /\.sec-head \{[\s\S]*?scroll-margin-top/);
     // 旧工作流区/二级面板样式应已移除

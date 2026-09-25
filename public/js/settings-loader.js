@@ -46,6 +46,23 @@
         return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
     }
 
+    function themeRgb(color) {
+        const parseRgb = value => {
+            const m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/.exec(value);
+            return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+        };
+        const direct = hexToRgb(color) || parseRgb(color);
+        if (direct) return direct;
+        if (!document.body || typeof getComputedStyle !== 'function') return null;
+        const probe = document.createElement('span');
+        probe.style.color = color;
+        probe.style.display = 'none';
+        document.body.appendChild(probe);
+        const resolved = parseRgb(getComputedStyle(probe).color);
+        probe.remove();
+        return resolved;
+    }
+
     function applySiteUrl(v) {
         const url = v ? sanitizeUrl(v) : null;
         if (!url) return;
@@ -139,6 +156,22 @@
         const color = v.trim();
         const root = document.documentElement.style;
         root.setProperty(cssVar, color);
+        if (cssVar === '--accent') {
+            const channels = themeRgb(color);
+            if (channels) {
+                const linear = n => {
+                    const c = n / 255;
+                    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+                };
+                const luminance = 0.2126 * linear(channels[0]) + 0.7152 * linear(channels[1]) + 0.0722 * linear(channels[2]);
+                const inkLuminance = 0.2126 * linear(13) + 0.7152 * linear(20) + 0.0722 * linear(32);
+                const inkContrast = (luminance + 0.05) / (inkLuminance + 0.05);
+                let onColor = '#000';
+                if (inkContrast >= 4.5) onColor = '#0d1420';
+                else if (1.05 / (luminance + 0.05) >= 4.5) onColor = '#fff';
+                root.setProperty('--accent-on', onColor);
+            }
+        }
         // hex 时同步派生 soft/glow 的 rgba 变体，保持整体协调
         const rgb = hexToRgb(color);
         if (rgb && softVar) {
