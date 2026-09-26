@@ -182,10 +182,10 @@ const { startTestServer, api } = require('../test/helpers');
         const pinnedIds = await page.locator('#pinnedGroup .dock-item').evaluateAll(links => links.map(a => new URL(a.href).href));
         const categoryIds = await page.locator('.card-link').evaluateAll(links => links.map(a => new URL(a.href).href));
         assert.equal(pinnedIds.some(url => categoryIds.includes(url)), false, 'pinned links must not duplicate in category groups');
-        assert.equal(await page.locator('.site-group-half .card-service').count(), 9);
-        assert.ok(await page.locator('.site-group-half .card-service').first().evaluate(el => el.getBoundingClientRect().width > 400), 'half-width service cards must retain readable width');
-        assert.equal(await page.locator('.site-group-third .card-service').count(), 2);
-        assert.equal(await page.locator('.site-group-third .card-fav').count(), 2);
+        // 统一排版：所有分类组整行同列数，不再有半行/三分之一行组
+        assert.equal(await page.locator('.site-group-full').count(), 4, 'every group renders full-width in unified layout');
+        assert.equal(await page.locator('.site-group-half, .site-group-third').count(), 0, 'unified layout must not emit width-tier classes');
+        assert.ok(await page.locator('.site-group .card-service').first().evaluate(el => el.getBoundingClientRect().width > 280), 'four-column cards must retain readable width');
         assert.equal(await page.locator('.card-abbr, .card-domain').count(), 0, 'unified compact cards must not render legacy bookmark parts');
         assert.equal(await page.locator('.card-link .card-star').count(), 0, 'card actions must be outside links');
         await page.evaluate(() => document.querySelectorAll('.rv').forEach(el => el.classList.add('vis')));

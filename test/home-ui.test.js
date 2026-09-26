@@ -28,7 +28,7 @@ test('configured layout orders groups and avoids duplicate pinned links', () => 
     assert.match(app, /Array\.isArray\(homeConfig\.layout\)/);
     assert.match(app, /\['pinned', \.\.\.orderedKeys\]/);
     assert.match(app, /items\.filter\(s => !isPinned\(s\.id\)\)/);
-    assert.match(app, /const columns = entry\.columns/);
+    assert.match(app, /entry\.columns \|\| 4/);
     assert.match(app, /applyGroupCollapse\(group, entry, head, grid\)/);
     assert.match(app, /function buildCard\(s\)/);
     assert.match(app, /card\.appendChild\(tagRow\)/);

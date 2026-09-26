@@ -620,10 +620,7 @@ body {
    ═══════════════════════════════════════════ */
 .cards-area { min-height: 200px; margin-top: 12px; }
 .site-groups { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px 16px; }
-.site-group { min-width: 0; }
-.site-group-wide { flex: 1 0 100%; }
-.site-group-half { flex: 0 1 calc(50% - 8px); }
-.site-group-third { flex: 0 1 calc(33.333% - 11px); }
+.site-group { min-width: 0; flex: 1 0 100%; }
 
 .sec-head {
     display: flex; align-items: center; gap: 10px;
@@ -651,7 +648,6 @@ body {
     gap: 8px;
 }
 .card-grid-service { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.site-group-half .card-grid-service { grid-template-columns: minmax(0, 1fr); }
 
 .card {
     position: relative;
@@ -933,12 +929,11 @@ body {
 .rv.vis { opacity: 1; transform: translateY(0); }
 
 /* ═══════════════════════════════════════════
-   RESPONSIVE — 宽组四列，窄组并排，手机单列
+   RESPONSIVE — 桌面四列，平板三列，手机两列/单列
    ═══════════════════════════════════════════ */
 @media (max-width: 1024px) {
     .dock { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .card-grid-service { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .site-group-third { flex-basis: calc(50% - 8px); }
 }
 
 @media (max-width: 768px) {
@@ -1022,8 +1017,6 @@ body {
 #browseTools[hidden], .card-tag[hidden], .card-grid[hidden], .dock[hidden], .dock-sec[hidden] { display: none !important; }
 .site-groups { gap: 16px; }
 .site-group-full { flex: 1 0 100%; }
-.site-group-half { flex: 0 1 calc(50% - 8px); }
-.site-group-third { flex: 0 1 calc(33.333% - 11px); }
 .site-group .card-grid, .site-group .dock { grid-template-columns: repeat(var(--group-columns, 4), minmax(0, 1fr)); }
 .dock-sec { margin: 0; }
 .dock-edit-bar, .sec-head { margin: 0 0 8px; min-height: 30px; }

@@ -25,12 +25,12 @@
 ## Information architecture
 - Primary navigation: 顶部信息栏（品牌 + 可选站点说明 + 日期时间 + 可选天气/组件，≤768px 隐去时钟）、右下角文字按钮组；手机将 ⊞ 全部站点/◷ 最近使用/⚙ 设置放进有实体背景的固定底栏并预留安全区与页面底部空间；设置弹层提供主题分段切换、清除本地数据和页面链接；无 Footer
 - Core routes/screens: 单页首页（唯一主屏，无视图切换）、友链、关于、提交、自定义页、管理后台
-- Content hierarchy（单页首页，`#homeView`）: 顶栏（品牌、可选站点说明、时钟、可选组件）→ 居中搜索 → 最近/收藏/服务状态紧凑信息栏 → 常用服务卡组（图标、站名、说明或域名、真实状态）→ 浏览区 `#browse`（简化的筛选与分类跳转 → 全宽/半宽/三分之一宽统一紧凑小卡组，顺序、列数与折叠由后台分组排布决定，未配置分类自动补默认布局；分类标题仍是页内锚点）→ 页面工具
+- Content hierarchy（单页首页，`#homeView`）: 顶栏（品牌、可选站点说明、时钟、可选组件）→ 居中搜索 → 最近/收藏/服务状态紧凑信息栏 → 常用服务卡组（图标、站名、说明或域名、真实状态）→ 浏览区 `#browse`（简化的筛选与分类跳转 → 整行统一紧凑小卡组，列数与折叠由后台分组排布决定，未配置分类自动补默认布局；分类标题仍是页内锚点）→ 页面工具
 - 分类角色：只用于分组与页内跳转，不决定用户能看到哪些站点；首次打开即完整展开全部站点，筛选默认且始终是「全部」
 
 ## Design principles
 - Principle 1: 导航优先（80/20）——首屏只服务「找到并打开站点」，工作台信息退居次要行
-- Principle 2: 分类决定组宽（8 个及以上全宽、4–7 半宽、1–3 三分之一宽），组内统一紧凑小卡按后台配置列数排布；小组保持固定栅格宽度、不随内容拉伸，手机各组单列
+- Principle 2: 统一排版——所有分类组整行、同列数（桌面 4 列，后台可按组覆盖 1–4 列与折叠），不再按站点数区分组宽；手机各组单列/两列
 - Principle 3: 常用站点也是服务组——横向图标、站名、说明或域名及真实状态；手机压缩为两列短卡
 - Principle 4: 状态只做轻量聚合——最近使用/稍后阅读/收藏数/服务状态小卡，不做 Dashboard 式图表；无数据源的功能不伪造数字（今日事项预留隐藏）
 - Principle 5: 功能边界保留——搜索（scoreSite 别名/模糊匹配）、收藏、最近、举报、点击上报逻辑不变，只改 DOM 结构与视图状态
@@ -46,7 +46,7 @@
 - Imagery/iconography: 站点 favicon 走 `<img loading="lazy">`，加载失败回退首字母色块 SVG（按站名 hash 取柔和底色）；非 URL 图标（emoji/字母）直接文本渲染；logo 用本地 favicon；无装饰性图形与背景图
 
 ## Components
-- Home 组件: `.home-topbar`（`.home-brand` + `.top-desc` 站点说明（留空隐藏、超出省略）+ `.top-clock`（≤768px 隐藏）+ `.header-widgets` 顶栏组件）；`.search-wrap`；`.status-row` 为紧凑信息栏；`.dock` 为四列常用服务卡；`.browse` 提供筛选与分类跳转；`.cards-area` 内 `.site-groups` 以 flex wrap 弹性排列分类，`.sec-head` 保留跳转锚点，`.card-grid-service` 承载全部统一紧凑小卡（`.card-fav` 24px 图标盒 + `.card-name` + `.card-desc`）；卡片内 `.widget-fields`/`.widget-panel`/`.widget-field` 展示组件指标（stale 降透明度）
+- Home 组件: `.home-topbar`（`.home-brand` + `.top-desc` 站点说明（留空隐藏、超出省略）+ `.top-clock`（≤768px 隐藏）+ `.header-widgets` 顶栏组件）；`.search-wrap`；`.status-row` 为紧凑信息栏；`.dock` 为四列常用服务卡；`.browse` 提供筛选与分类跳转；`.cards-area` 内 `.site-groups` 纵向堆叠整行分类组，`.sec-head` 保留跳转锚点，`.card-grid-service` 承载全部统一紧凑小卡（`.card-fav` 24px 图标盒 + `.card-name` + `.card-desc`）；卡片内 `.widget-fields`/`.widget-panel`/`.widget-field` 展示组件指标（stale 降透明度）
 - 浏览区复用组件: `.cat-pill`（筛选与跳转）、`.tag-chip`/`.tag-chip-x`、`.card-service`（图标 + 站名 + 一行说明，缺省说明时显示域名 + 状态点）、`.card-bookmark`（双字缩写 + 站名）、`.card-tags`（最多两个可点标签，超出用「+N」展开）、`.report-panel`、`.toast`、`.skel-card`、`.loader`、`.btt`；卡片按钮与站点链接为兄弟元素
 - Variants and states: light/dark；搜索 focus-within；常用卡 hover/focus-visible；状态卡 hover；跳转与筛选的 on/hover/focus-visible；卡片 📌/☆/⚑ 的 on/hover；设置弹层 open
 - Token/component ownership: 首页视觉 token 全部在 `public/css/style.css` 的 `:root` / `[data-theme]`；`settings-loader.js` 仍可通过 `--accent`/`--accent-2` 覆盖主题色，并为实心强调色按钮选择 `--accent-on` 文字色
@@ -59,7 +59,7 @@
 - Reduced motion and sensory considerations: `prefers-reduced-motion` 下关闭骨架脉冲与弹出/抽屉位移动画
 
 ## Responsive behavior
-- Supported breakpoints/devices: 桌面 ≥1025px（内容 1280px、常用与全宽分类小卡 4 列，半宽/小分类默认单列）；平板 ≤1024px（全宽小卡 3 列、小分类至少半宽）；手机 ≤768px（常用两列、分类全宽、小卡两列、分类跳转改抽屉）；≤480px（分类小卡单列、搜索 48px）
+- Supported breakpoints/devices: 桌面 ≥1025px（内容 1280px、常用与分类小卡统一 4 列）；平板 ≤1024px（统一 3 列）；手机 ≤768px（常用两列、分类全宽两列、分类跳转改抽屉）；≤480px（分类小卡单列、搜索 48px）
 - Layout adaptations: 分类跳转 pill 桌面溢出收进「更多」菜单（按容器宽度实测搬入）；≤768px 由右侧抽屉接管分类跳转与筛选（抽屉内同时列出分类与模式）
 - Touch/hover differences: 卡片「报告失效」随 hover 显现，触屏不依赖 hover（卡片点击仍是跳转）；收藏星标始终可见
 
@@ -83,7 +83,7 @@
 - 后台设置定义公共默认常用入口、状态模块和搜索引擎；访客的常用入口与引擎选择优先，不被后台更新覆盖。
 - 首页常用区以「编辑」切换原生按钮排序、移除操作，支持键盘与触屏；最多 12 项全部可见。
 - 2026-09-24 单页改版：全部站点默认按分类完整展开，分类仅分组与页内跳转；后台下线「展示分类」「每类展示数量」控件，但 `home_config` 中的 `category_ids`/`category_limit` 历史字段仍可读取、保存其他设置时原值保留（两端共享 schema 不变）。
-- 2026-09-26 Homepage 风格工作台：顶部为紧凑信息栏（品牌、可选站点说明、时钟、可选组件），问候区与独立大状态区移除；分组排布由 `home_config.layout` 描述（`{id,width,columns,collapsed}`，上限 101 组，含 `pinned` 常用组；旧配置中的 `variant` 字段仍被接受但不再影响渲染——全部站点统一为 24px 图标 / 46px 行高的紧凑小卡）；未配置的分类按站点数自动获得默认布局：常用或 ≥8 站点全行 4 列、4–7 半行单列、1–3 三分之一行单列；小组保持固定栅格宽度不拉伸。已在常用组出现的站点不在分类组重复。
+- 2026-09-26 Homepage 风格工作台：顶部为紧凑信息栏（品牌、可选站点说明、时钟、可选组件），问候区与独立大状态区移除；分组排布由 `home_config.layout` 描述（`{id,columns,collapsed}`，上限 101 组，含 `pinned` 常用组；旧配置中的 `width`/`variant` 字段仍被接受但不再影响渲染——全部分类组统一整行 4 列紧凑小卡，桌面 4 列、平板 3 列、手机 2 列）；已在常用组出现的站点不在分类组重复。
 - 2026-09-26 工作台组件：两端新增 `dashboard_widgets` 与 `dashboard_widget_cache` 表（D1 迁移幂等）；首批类型为 GitHub 公开仓库、公开状态页（Uptime Kuma）、通用 HTTPS JSON API 与天气（Open-Meteo，未配置位置不显示）。公开元数据（`GET /api/widgets`）不含请求地址等配置；私密组件的配置与数据仅经管理员接口提供。通用接口限定 HTTPS 公网主机、≤256KB、5s 超时、不自动跟随重定向、不收第三方 API 密钥；服务端缓存 5 分钟，失败回退 stale（附上次更新时间）或「暂不可用」，不伪造指标。
 - 后台预览复用真实首页并隔离访客本地偏好；未保存预览不写入服务器。
 - 迁移支持书签 HTML/JSON 预览确认、个人偏好导入导出。内容备份与本地图标资源分开说明和操作，不把内容 JSON 描述为整站备份。

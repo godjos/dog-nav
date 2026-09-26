@@ -56,10 +56,10 @@
         for (const group of value.layout) {
             if (!isObject(group) || Object.keys(group).some(key => !['id', 'width', 'variant', 'columns', 'collapsed'].includes(key)) ||
                 typeof group.id !== 'string' || !group.id.trim() || group.id.length > 120 || layoutIds.has(group.id) ||
-                !['full', 'half', 'third'].includes(group.width) ||
+                (group.width !== undefined && !['full', 'half', 'third'].includes(group.width)) ||
                 (group.variant !== undefined && !['service', 'bookmark'].includes(group.variant)) ||
                 !Number.isInteger(group.columns) || group.columns < 1 || group.columns > 4 || typeof group.collapsed !== 'boolean') {
-                return fail('layout 分组必须有唯一 ID、有效宽度、1 至 4 列及折叠状态');
+                return fail('layout 分组必须有唯一 ID、1 至 4 列及折叠状态');
             }
             layoutIds.add(group.id);
         }

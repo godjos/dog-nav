@@ -797,7 +797,7 @@ function renderBrowse() {
             if (k === 'pinned') {
                 const pinnedGroup = pinnedGroupEl;
                 if (!pinnedGroup) continue;
-                pinnedGroup.className = `dock-sec site-group site-group-${entry.width || 'full'}`;
+                pinnedGroup.className = 'dock-sec site-group site-group-full';
                 pinnedGroup.hidden = pinnedSites().length === 0;
                 pinnedGroup.style.setProperty('--group-columns', String(entry.columns || 4));
                 applyGroupCollapse(pinnedGroup, entry, pinnedGroup.querySelector('.dock-edit-bar'), pinnedGroup.querySelector('.dock'));
@@ -807,10 +807,9 @@ function renderBrowse() {
             if (!g[k]) continue;
             const c = C[k] || { i: '📁', l: k };
             const group = document.createElement('section');
-            const size = entry.width || (g[k].length >= 8 ? 'full' : g[k].length >= 4 ? 'half' : 'third');
-            const columns = entry.columns || (size === 'full' ? 4 : 1);
-            group.className = `site-group site-group-${size}`;
-            group.style.setProperty('--group-columns', String(columns));
+            // 统一排版：所有分类组整行、同列数（列数可后台覆盖）
+            group.className = 'site-group site-group-full';
+            group.style.setProperty('--group-columns', String(entry.columns || 4));
             const head = buildSecHead(c.i, c.l, k);
             const grid = buildCardGrid(g[k]);
             group.append(head, grid);

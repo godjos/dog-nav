@@ -32,12 +32,11 @@
         title.textContent = label;
         row.append(title);
         for (const [key, choices] of [
-            ['width', [['full', '整行'], ['half', '半行'], ['third', '三分之一行']]],
             ['columns', [[1, '1 列'], [2, '2 列'], [3, '3 列'], [4, '4 列']]],
         ]) {
             const select = document.createElement('select');
             select.className = `home-layout-${key}`;
-            select.setAttribute('aria-label', `${label}：${{ width: '分组宽度', columns: '组内列数' }[key]}`);
+            select.setAttribute('aria-label', `${label}：组内列数`);
             choices.forEach(([value, text]) => select.append(option(value, text, group[key] === value)));
             row.append(select);
         }
@@ -63,8 +62,6 @@
     }
     function renderLayout(layout, categories, sites) {
         const categoryById = new Map(categories.map(cat => [cat.id, cat]));
-        const counts = new Map();
-        sites.forEach(site => counts.set(site.category, (counts.get(site.category) || 0) + 1));
         const configured = new Map(layout.map(group => [group.id, group]));
         const ids = [...configured.keys(), 'pinned', ...categories.map(cat => cat.id)];
         const rows = [];
@@ -72,12 +69,7 @@
         for (const id of ids) {
             if (seen.has(id)) continue;
             seen.add(id);
-            const count = counts.get(id) || 0;
-            const fallback = id === 'pinned' || count >= 8
-                ? { width: 'full', variant: 'service', columns: 4, collapsed: false }
-                : count >= 4
-                    ? { width: 'half', variant: 'service', columns: 1, collapsed: false }
-                    : { width: 'third', variant: 'bookmark', columns: 1, collapsed: false };
+            const fallback = { columns: 4, collapsed: false };
             const label = id === 'pinned' ? '常用站点' : categoryById.get(id)?.name || `已移除分类：${id}`;
             rows.push(layoutRow(id, label, configured.get(id) || fallback));
         }
@@ -125,7 +117,6 @@
             pinned_ids: byId('home_pinned_mode').value === 'auto' ? null : selectedValues('home_pinned').map(Number),
             layout: Array.from(byId('home_layout').children, row => ({
                 id: row.dataset.id,
-                width: row.querySelector('.home-layout-width').value,
                 columns: Number(row.querySelector('.home-layout-columns').value),
                 collapsed: row.querySelector('.home-layout-collapse input').checked,
             })),

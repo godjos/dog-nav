@@ -101,6 +101,9 @@ describe('homepage configuration', () => {
         const pinned = { id: 'pinned', width: 'full', variant: 'service', columns: 4, collapsed: false };
         const category = { id: 'tools', width: 'half', variant: 'bookmark', columns: 1, collapsed: true };
         assert.deepEqual(homeConfig.validate({ layout: [pinned, category] }).value.layout, [pinned, category]);
+        // 统一排版后 width/variant 可省略（渲染忽略），仅列数与折叠为必填
+        const minimal = { id: 'tools', columns: 4, collapsed: false };
+        assert.deepEqual(homeConfig.validate({ layout: [minimal] }).value.layout, [minimal]);
         assert.deepEqual(homeConfig.validate({}).value.layout, []);
         for (const layout of [null, [pinned, pinned], [{ ...pinned, columns: 0 }], [{ ...pinned, width: 'tiny' }], [{ ...pinned, extra: 1 }]]) {
             assert.ok(homeConfig.validate({ layout }).error, JSON.stringify(layout));
