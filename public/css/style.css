@@ -624,8 +624,8 @@ body {
 .site-groups { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px 16px; }
 .site-group { min-width: 0; }
 .site-group-wide { flex: 1 0 100%; }
-.site-group-half { flex: 1 1 calc(50% - 8px); }
-.site-group-third { flex: 1 1 calc(33.333% - 11px); }
+.site-group-half { flex: 0 1 calc(50% - 8px); }
+.site-group-third { flex: 0 1 calc(33.333% - 11px); }
 
 .sec-head {
     display: flex; align-items: center; gap: 10px;
@@ -1042,8 +1042,8 @@ body {
 #browseTools[hidden], .card-tag[hidden], .card-grid[hidden], .dock[hidden], .dock-sec[hidden] { display: none !important; }
 .site-groups { gap: 16px; }
 .site-group-full { flex: 1 0 100%; }
-.site-group-half { flex: 1 1 calc(50% - 8px); }
-.site-group-third { flex: 1 1 calc(33.333% - 11px); }
+.site-group-half { flex: 0 1 calc(50% - 8px); }
+.site-group-third { flex: 0 1 calc(33.333% - 11px); }
 .site-group .card-grid, .site-group .dock { grid-template-columns: repeat(var(--group-columns, 4), minmax(0, 1fr)); }
 .dock-sec { margin: 0; }
 .dock-edit-bar, .sec-head { margin: 0 0 8px; min-height: 30px; }
