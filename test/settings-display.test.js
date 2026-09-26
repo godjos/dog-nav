@@ -13,14 +13,14 @@ async function load(settings) {
         elements.set(id, { textContent: '', hidden: false, style: {} });
     }
     const meta = { setAttribute(key, value) { this[key] = value; } };
-    const logo = { textContent: 'DogNav' };
+    const logo = { textContent: 'Mirza' };
     const favicon = {};
     const canonical = { setAttribute(key, value) { this[key] = value; } };
     const colors = {};
     const created = [];
     const submission = { style: {}, closest() { return null; } };
     const document = {
-        title: 'DogNav - 精选网址导航',
+        title: 'Mirza - 个人导航工作台',
         getElementById: id => elements.get(id) || null,
         querySelector(selector) {
             if (selector === 'meta[name="description"]') return meta;

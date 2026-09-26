@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/BYGD/dog-nav/main/ico.ico" width="100" style="border-radius:50%" alt="DogNav Logo">
+<img src="https://raw.githubusercontent.com/BYGD/dog-nav/main/ico.ico" width="100" style="border-radius:50%" alt="Mirza Logo">
 
-# 🐕 DogNav
+# Mirza
 
-### ✨ 发现互联网的无限精彩 ✨
+### ✨ 我的个人导航工作台 ✨
 
-**一个精心策划的网址导航站，自带完整 CMS 后台 — 支持本地部署或一键部署到 Cloudflare。**
+**参考 [DogNav](https://github.com/BYGD/dog-nav) 的精选站点数据与 [Homepage](https://gethomepage.dev) 的紧凑布局打造的个人起始页 — 自带完整 CMS 后台，支持本地部署或一键部署到 Cloudflare。**
 
 [![在线演示](https://img.shields.io/badge/在线演示-nav.cangdog.com-FF6B6B?style=flat-square)](https://nav.cangdog.com)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-dognav.ccgg.workers.dev-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://dognav.ccgg.workers.dev)
@@ -67,6 +67,7 @@ dog-nav/
 ├── 📁 项目结构
 ├── 🛠️ 技术栈
 ├── 📸 截图预览
+├── 🙏 参考与致谢
 └── 📄 开源协议
 ```
 
@@ -74,38 +75,48 @@ dog-nav/
 
 ## 📖 简介
 
-DogNav 是一个精心策划的网址导航站，帮助你发现互联网上最优质的网站。采用**扁平化现代 UI** 设计（紧凑瓷贴卡片、吸顶分类栏），支持深色/浅色主题切换，收录了 **150+ 精选站点**，涵盖 10 个分类，并配备**完整的 CMS 后台**，方便管理内容。
+Mirza 是一个精心策划的**个人导航工作台**：每天打开浏览器，第一屏就是紧凑的信息栏、搜索框、常用站点和真实的服务状态。界面直接参考 [Homepage](https://gethomepage.dev) 官方示例的 sky 蓝主题与紧凑排布，站点数据沿袭自 [DogNav](https://github.com/BYGD/dog-nav) 的 150+ 精选收录，涵盖 10 个分类，并配备**完整的 CMS 后台**。
 
-最初作为纯静态前端构建，DogNav 已发展为一个全栈应用，提供两种部署方式：本地 Node.js CMS 和无服务器 Cloudflare Workers 版本。
+纯静态前端 + 双后端架构：本地 Node.js（Express + sql.js）或无服务器 Cloudflare Workers（Hono + D1），两端 API 完全一致、共享同一套页面。
 
 ---
 
 ## 🌟 功能特性
 
+### Homepage 风格工作台
+
 | 功能 | 说明 |
 |:-----|:-----|
-| 🎨 **扁平化现代 UI** | 简洁扁平设计，紧凑瓷贴卡片与流畅动画 |
-| 🌓 **深色 / 浅色模式** | 一键切换主题，自动记住用户偏好 |
-| 🔍 **多引擎搜索** | 谷歌、必应、百度、DuckDuckGo — 导航栏内直接搜索 |
-| 📂 **10 大分类** | 推荐、视频、动漫、软件、工具、资讯、社区、AI、开发、设计 |
-| 📱 **全端响应式** | 针对桌面、平板和移动端全面适配 |
-| 🇨🇳 **国内可达** | 所有收录站点从大陆均可访问，CDN 使用国内友好服务商 |
-| 🗄️ **完整 CMS 后台** | 通过管理面板管理站点、分类、页面、友链、用户和设置 |
-| 📄 **自定义页面** | 后台随意创建、编辑、删除页面，首页导航栏自动展示 |
-| 🩺 **站点健康监控** | 批量检测所有站点可用性 — 按在线 / 缓慢 / 离线筛选 |
+| 🧭 **紧凑顶部信息栏** | 品牌、站点说明、日期时间、可配置天气组件，一眼即达 |
+| 🔍 **居中搜索** | 站内搜索优先（支持别名/模糊匹配），可切换百度/Google/Bing 等外部引擎，⌘K / Ctrl K 直达 |
+| 🗂️ **弹性分组排布** | 常用站点为第一组，其余按分类连续展示；每组可在后台设置顺序、整行/半行/三分之一宽、服务卡或书签行、列数与默认折叠 |
+| 🏷️ **卡片标签** | 服务卡最多展示两个可点击标签，更多用「+N」展开；标签即筛选 |
+| 🩺 **真实服务状态** | 站点健康检测聚合（在线/缓慢/离线），最近使用、收藏计数紧凑呈现，不伪造指标 |
+| 🧩 **真实指标组件** | 网站卡支持 GitHub 仓库 Stars、公开状态页、通用 HTTPS JSON API；顶栏支持天气（Open-Meteo），后台可配置公开/私密 |
+| 🌓 **深色 / 浅色模式** | sky 蓝深色主题与浅色主题，一键切换并记住偏好 |
+| 📱 **全端响应式** | 桌面 4 列服务卡，手机两列短卡 + 底部工具栏，360px 无横向溢出 |
+
+### 内容与后台
+
+| 功能 | 说明 |
+|:-----|:-----|
+| 🗄️ **完整 CMS 后台** | 站点、分类、页面、友链、用户和设置的完整管理 |
+| 📄 **自定义页面** | 后台随意创建、编辑、删除页面 |
 | 🔄 **自动获取元信息** | 输入网址一键获取图标、站名和描述 |
 | 🖼️ **自定义 Favicon** | 在系统设置中上传自己的站点图标 |
 | 📊 **点击统计** | 内置点击计数，追踪站点热度 |
 | 📝 **用户提交** | 访客可提交网站，由管理员审核收录 |
-| ☁️ **Cloudflare 部署** | 一键部署到 Cloudflare Workers + D1，首次访问自动初始化数据库 |
+| ⚙️ **首页设置与预览** | 后台配置默认首页并实时预览，访客本地偏好不被覆盖 |
+| 💾 **备份恢复** | 内容备份导出/导入，书签 HTML/JSON 迁移 |
 | 🔐 **后台鉴权** | Bearer Token 认证，操作日志全程记录 |
+| ☁️ **Cloudflare 部署** | 一键部署到 Workers + D1，首次访问自动初始化数据库 |
 | 📦 **开箱即用** | 预置 150+ 站点、10 个分类和默认设置 |
 
 ---
 
 ## 🏗️ 架构设计
 
-DogNav 提供**两种部署模式**，前端和 API 完全一致：
+Mirza 提供**两种部署模式**，前端和 API 完全一致：
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -253,7 +264,9 @@ npx wrangler deploy
 |:-----|:-----|
 | 📋 **站点管理** | 增删改查导航站点，支持一键获取图标和描述 |
 | 📂 **分类管理** | 管理站点分类，自定义图标和排序 |
-| 📄 **页面管理** | 创建、编辑、删除自定义页面，首页导航栏自动展示 |
+| 🧭 **首页设置** | 分组排布（顺序/宽度/卡片样式/列数/折叠）、默认常用站点、搜索引擎、状态模块，实时预览 |
+| 🧩 **工作台组件** | 为顶栏和网站卡配置天气、GitHub、公开状态页、JSON API 指标，支持公开/私密可见性 |
+| 📄 **页面管理** | 创建、编辑、删除自定义页面 |
 | 🔗 **友链管理** | 管理友情链接，支持自动获取站点元信息 |
 | 📮 **提交审核** | 审核访客提交的站点，一键通过或拒绝 |
 | 🩺 **站点检测** | 批量可用性监控 — 按在线 / 缓慢 / 离线筛选 |
@@ -270,13 +283,13 @@ npx wrangler deploy
 ```
 dog-nav/
 ├── public/                 # 前端静态资源（唯一副本，Express 与 Workers 共用）
-│   ├── index.html          # 主页导航
+│   ├── index.html          # 主页（Homepage 风格工作台）
 │   ├── about.html          # 关于页面（CMS 驱动）
 │   ├── links.html          # 友链页面（CMS 驱动）
 │   ├── contribute.html     # 投稿页面（CMS 驱动）
 │   ├── page.html           # 自定义页面模板（CMS 驱动）
-│   ├── css/                # style.css（扁平化主题）· font-awesome.css
-│   ├── js/                 # app.js 等前端逻辑（渲染、搜索、主题）
+│   ├── css/                # style.css（Homepage 风格主题）
+│   ├── js/                 # app.js 等前端逻辑（渲染、搜索、主题、组件）
 │   ├── ico/                # 站点图标
 │   ├── admin/              # 后台管理（13 个页面）
 │   │   ├── index.html      # 登录页
@@ -290,14 +303,14 @@ dog-nav/
 │   └── sitemap.xml         # XML 站点地图
 │
 ├── server.js               # 本地 CMS 服务（Express + sql.js）
-├── lib/                    # Express 端共享模块（auth.js · netutils.js）
+├── lib/                    # Express 端共享模块（auth.js · netutils.js · widgets.js）
 ├── seed.js                 # 业务数据播种脚本
 ├── deploy.js               # Cloudflare 可信发布脚本（唯一实现：门禁+验证+自动回滚）
 ├── package.json            # Node.js 依赖（CF 端依赖见 cloudflare/package.json）
 ├── wrangler.toml           # Cloudflare Workers 配置（一键部署用）
 ├── uploads/icons/          # 上传/抓取的图标（不入库）
 │
-├── test/                   # 测试：api · auth · contract（双运行时契约）· deploy（发布流程）
+├── test/                   # 测试：api · auth · contract（双运行时契约）· widgets · deploy
 ├── docs/
 │   └── API_CONTRACT.md     # 双端 API 契约文档
 │
@@ -306,7 +319,7 @@ dog-nav/
 │   │   ├── index.js        # Hono API 后端 + 自动初始化
 │   │   ├── auth.mjs        # 鉴权模块
 │   │   └── netutils.mjs    # 网络工具
-│   ├── schema.sql          # D1 数据库结构（13 张表）
+│   ├── schema.sql          # D1 数据库结构（15 张表）
 │   ├── seed.sql            # 种子数据（150+ 站点）
 │   ├── deploy.js           # 部署兼容入口（仅转发到根目录 deploy.js）
 │   ├── wrangler.toml       # Cloudflare 配置（手动部署用）
@@ -324,7 +337,6 @@ dog-nav/
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
-![Font Awesome](https://img.shields.io/badge/Font_Awesome-528DD7?style=flat-square&logo=font-awesome&logoColor=white)
 
 **本地后端**
 
@@ -363,6 +375,13 @@ dog-nav/
 | Cloudflare Workers | [dognav.ccgg.workers.dev](https://dognav.ccgg.workers.dev) | 全栈 CMS 版本 |
 | 自定义域名 | [nav.cangdog.com](https://nav.cangdog.com) | 前端演示 |
 | 本地部署 | `localhost:3000` | 自备 Node.js 环境 |
+
+---
+
+## 🙏 参考与致谢
+
+- **[DogNav](https://github.com/BYGD/dog-nav)** — 本站的前身与数据基础，150+ 精选站点、双运行时架构与 CMS 后台均沿袭于此。
+- **[Homepage](https://gethomepage.dev)** — 界面设计基准，紧凑顶部信息栏、服务卡/书签行分组与组件使用方式均参考其官方示例。
 
 ---
 

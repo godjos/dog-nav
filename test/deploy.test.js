@@ -90,8 +90,8 @@ function makeFetch(overrides = {}) {
         for (const [suffix, res] of Object.entries(overrides)) {
             if (u.endsWith(suffix)) return typeof res === 'function' ? res() : res;
         }
-        if (u.endsWith('/')) return fakeResponse(200, '<!doctype html><title>DogNav</title>', 'text/html; charset=utf-8');
-        if (u.endsWith('/api/settings')) return fakeResponse(200, { site_name: 'DogNav' });
+        if (u.endsWith('/')) return fakeResponse(200, '<!doctype html><title>Mirza</title>', 'text/html; charset=utf-8');
+        if (u.endsWith('/api/settings')) return fakeResponse(200, { site_name: 'Mirza' });
         throw new Error(`unexpected url: ${u}`);
     };
 }

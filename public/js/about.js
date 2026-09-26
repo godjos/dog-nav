@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 关于页脚本（由 about.html 内联脚本拆离）
+// Mirza 关于页脚本（由 about.html 内联脚本拆离）
 // ═══════════════════════════════════════════
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');
@@ -57,7 +57,7 @@ document.querySelectorAll('.rv').forEach(el => { setTimeout(() => { const r = el
                 }, 50);
             }
             if (page && page.title) {
-                document.title = page.title + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'DogNav');
+                document.title = page.title + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'Mirza');
             }
         }
     } catch (err) {

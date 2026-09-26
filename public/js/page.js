@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 自定义页面脚本（由 page.html 内联脚本拆离）
+// Mirza 自定义页面脚本（由 page.html 内联脚本拆离）
 // ═══════════════════════════════════════════
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');
@@ -40,7 +40,7 @@ function getSlug() {
         const page = await pageRes.json();
         if (!page || !page.content) { showNotFound(); return; }
 
-        document.title = (page.title || slug) + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'DogNav');
+        document.title = (page.title || slug) + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'Mirza');
         document.getElementById('pageTitle').innerHTML = '<span class="grad">' + escapeHtml(page.title || slug) + '</span>';
         if (page.updated_at) {
             document.getElementById('pageSubtitle').textContent = '最后更新: ' + new Date(page.updated_at).toLocaleDateString('zh-CN');
@@ -62,7 +62,7 @@ function getSlug() {
 })();
 
 function showNotFound() {
-    document.title = '页面不存在 - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'DogNav');
+    document.title = '页面不存在 - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'Mirza');
     document.getElementById('pageTitle').innerHTML = '<span class="grad">页面不存在</span>';
     document.getElementById('pageSubtitle').textContent = '404 Not Found';
     document.getElementById('pageContent').innerHTML = '<div class="page-card rv not-found"><div class="emoji">🔍</div><h2>找不到这个页面</h2><p>你访问的页面可能已被删除或地址有误。<br><br><a href="index.html">← 返回首页</a></p></div>';

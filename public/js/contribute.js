@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 提交收录页脚本（由 contribute.html 内联脚本拆离）
+// Mirza 提交收录页脚本（由 contribute.html 内联脚本拆离）
 // ═══════════════════════════════════════════
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');

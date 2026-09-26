@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 公共前端安全工具（公共页与后台共用）
+// Mirza 公共前端安全工具（公共页与后台共用）
 //   escapeHtml(s)    — 转义文本，安全拼进 HTML
 //   sanitizeUrl(url) — 仅允许 http:/https:，其余返回 null
 //   sanitizeHtml(html) — 富文本白名单清洗（Quill 产出的 CMS 内容）

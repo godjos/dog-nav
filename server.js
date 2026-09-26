@@ -1,5 +1,6 @@
 const homeConfig = require('./public/js/home-config');
 const { validateSettingsUpdate } = require('./public/js/settings-schema');
+const { validateWidget, adminWidget, publicWidget, widgetData } = require('./lib/widgets');
 const express = require('express');
 const initSqlJs = require('sql.js');
 const path = require('path');
@@ -266,6 +267,21 @@ async function initDb() {
         referrer TEXT,
         clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+    db.run(`CREATE TABLE IF NOT EXISTS dashboard_widgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id INTEGER,
+        type TEXT NOT NULL,
+        visibility TEXT NOT NULL DEFAULT 'public',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        config_json TEXT NOT NULL
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS dashboard_widget_cache (
+        widget_id INTEGER PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        data_json TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL
+    )`);
 
     // ═══════════════════════════════════════════
     // IDEMPOTENT MIGRATIONS (for databases created by older versions)
@@ -341,10 +357,10 @@ async function initDb() {
     const settingsCount = settingsResult[0]?.values[0][0] || 0;
     if (settingsCount === 0) {
         const defaults = [
-            ['site_name', 'DogNav'],
+            ['site_name', 'Mirza'],
             ['site_description', '发现互联网的无限精彩'],
             ['site_icon', ''],
-            ['footer_text', 'DogNav © 2026 — Design by CangDog'],
+            ['footer_text', 'Mirza © 2026 — Design by CangDog'],
             ['footer_blog_url', 'https://www.cangdog.com'],
             ['footer_github_url', 'https://github.com/BYGD'],
             ['theme_primary_color', '#667eea'],
@@ -362,7 +378,7 @@ async function initDb() {
     const pagesCount = pagesResult[0]?.values[0][0] || 0;
     if (pagesCount === 0) {
         const pages = [
-            ['about', '关于 DogNav', 'DogNav 是一个精选网址导航，收录了互联网上最优质的网站。'],
+            ['about', '关于 Mirza', 'Mirza 是一个个人导航工作台，参考 DogNav 的精选站点与 Homepage 的紧凑布局，收录了互联网上最优质的网站。'],
             ['contribute', '提交站点', '如果你发现了好网站，欢迎提交给我们。'],
             ['links', '友情链接', '以下是与本站有友好往来的网站。'],
         ];
@@ -1515,6 +1531,87 @@ function getAllSettings() {
     return settings;
 }
 
+// Dashboard widgets: public metadata never contains source configuration.
+function widgetRows(sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+}
+function widgetById(id) {
+    return widgetRows('SELECT * FROM dashboard_widgets WHERE id=?', [id])[0] || null;
+}
+function widgetSiteExists(siteId) {
+    return siteId === null || widgetRows('SELECT id FROM sites WHERE id=?', [siteId]).length > 0;
+}
+const widgetCacheStore = {
+    read(id) { return widgetRows('SELECT * FROM dashboard_widget_cache WHERE widget_id=?', [id])[0] || null; },
+    write(id, configJson, dataJson, fetchedAt) {
+        db.run('INSERT OR REPLACE INTO dashboard_widget_cache (widget_id,config_json,data_json,fetched_at) VALUES (?,?,?,?)',
+            [id, configJson, dataJson, fetchedAt]);
+        saveDb();
+    },
+};
+app.get('/api/widgets', (req, res) => {
+    const rows = widgetRows("SELECT * FROM dashboard_widgets WHERE enabled=1 AND visibility='public' ORDER BY sort_order,id");
+    res.json(rows.map(publicWidget));
+});
+app.get('/api/admin/widgets', requireAdmin, (req, res) => {
+    res.json(widgetRows('SELECT * FROM dashboard_widgets ORDER BY sort_order,id').map(adminWidget));
+});
+app.post('/api/admin/widgets', requireAdmin, (req, res) => {
+    let widget;
+    try { widget = validateWidget(req.body); } catch (err) { return res.status(400).json({ error: err.message }); }
+    if (!widgetSiteExists(widget.site_id)) return res.status(400).json({ error: 'Site not found' });
+    db.run('INSERT INTO dashboard_widgets (site_id,type,visibility,enabled,sort_order,config_json) VALUES (?,?,?,?,?,?)',
+        [widget.site_id, widget.type, widget.visibility, widget.enabled, widget.sort_order, widget.config_json]);
+    const id = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+    saveDb();
+    res.status(201).json(adminWidget(widgetById(id)));
+});
+app.put('/api/admin/widgets/:id', requireAdmin, (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid widget id' });
+    if (!widgetById(id)) return res.status(404).json({ error: 'Widget not found' });
+    let widget;
+    try { widget = validateWidget(req.body); } catch (err) { return res.status(400).json({ error: err.message }); }
+    if (!widgetSiteExists(widget.site_id)) return res.status(400).json({ error: 'Site not found' });
+    db.run('UPDATE dashboard_widgets SET site_id=?,type=?,visibility=?,enabled=?,sort_order=?,config_json=? WHERE id=?',
+        [widget.site_id, widget.type, widget.visibility, widget.enabled, widget.sort_order, widget.config_json, id]);
+    db.run('DELETE FROM dashboard_widget_cache WHERE widget_id=?', [id]);
+    saveDb();
+    res.json(adminWidget(widgetById(id)));
+});
+app.delete('/api/admin/widgets/:id', requireAdmin, (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid widget id' });
+    if (!widgetById(id)) return res.status(404).json({ error: 'Widget not found' });
+    db.run('DELETE FROM dashboard_widgets WHERE id=?', [id]);
+    db.run('DELETE FROM dashboard_widget_cache WHERE widget_id=?', [id]);
+    saveDb();
+    res.json({ success: true });
+});
+app.get('/api/widgets/:id/data', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid widget id' });
+    const row = widgetById(id);
+    if (!row || !row.enabled) return res.status(404).json({ error: 'Widget not found' });
+    if (row.visibility === 'private') {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const session = getSession(token);
+        if (!session) return res.status(401).json({ error: 'Unauthorized' });
+        if (session.mustChange) return res.status(403).json({ error: 'password_change_required' });
+        if (session.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(await widgetData(row, async (url, options) => {
+        if (await isPrivateHost(new URL(url).hostname)) throw new Error('Blocked private host');
+        return fetch(url, options);
+    }, widgetCacheStore));
+});
+
 app.get('/api/settings', (req, res) => {
     try {
         const all = getAllSettings();
@@ -2192,7 +2289,7 @@ async function probeSiteUrl(siteUrl) {
             resp = await fetch(currentUrl, {
                 redirect: 'manual',
                 signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
-                headers: { 'User-Agent': 'DogNav-HealthCheck/1.0' },
+                headers: { 'User-Agent': 'Mirza-HealthCheck/1.0' },
             });
         } catch (err) {
             const msg = (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) ? 'Timeout' : 'Connection failed';

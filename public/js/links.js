@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 友链页脚本（由 links.html 内联脚本拆离）
+// Mirza 友链页脚本（由 links.html 内联脚本拆离）
 // ═══════════════════════════════════════════
 const H = document.documentElement;
 const savedTheme = localStorage.getItem('dognav-theme');
@@ -112,7 +112,7 @@ function renderFriendLinks(links) {
                 }, 50);
             }
             if (page && page.title) {
-                document.title = page.title + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'DogNav');
+                document.title = page.title + ' - ' + (window.DogNavSettings ? DogNavSettings.siteName() : 'Mirza');
             }
         }
     } catch (err) {

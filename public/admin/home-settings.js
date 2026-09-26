@@ -24,6 +24,66 @@
         wrapper.append(input, document.createTextNode(label));
         return wrapper;
     }
+    function layoutRow(id, label, group) {
+        const row = document.createElement('div');
+        row.className = 'home-layout-row';
+        row.dataset.id = id;
+        const title = document.createElement('strong');
+        title.textContent = label;
+        row.append(title);
+        for (const [key, choices] of [
+            ['width', [['full', '整行'], ['half', '半行'], ['third', '三分之一行']]],
+            ['variant', [['service', '服务卡'], ['bookmark', '书签行']]],
+            ['columns', [[1, '1 列'], [2, '2 列'], [3, '3 列'], [4, '4 列']]],
+        ]) {
+            const select = document.createElement('select');
+            select.className = `home-layout-${key}`;
+            select.setAttribute('aria-label', `${label}：${{ width: '分组宽度', variant: '卡片样式', columns: '组内列数' }[key]}`);
+            choices.forEach(([value, text]) => select.append(option(value, text, group[key] === value)));
+            row.append(select);
+        }
+        const collapse = document.createElement('label');
+        collapse.className = 'home-layout-collapse';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = group.collapsed;
+        collapse.append(input, document.createTextNode('默认折叠'));
+        row.append(collapse);
+        for (const [labelText, direction] of [['上移', -1], ['下移', 1]]) {
+            const move = document.createElement('button');
+            move.type = 'button';
+            move.textContent = direction < 0 ? '↑' : '↓';
+            move.setAttribute('aria-label', `${labelText}${label}`);
+            move.addEventListener('click', () => {
+                const sibling = direction < 0 ? row.previousElementSibling : row.nextElementSibling;
+                if (sibling) sibling[direction < 0 ? 'before' : 'after'](row);
+            });
+            row.append(move);
+        }
+        return row;
+    }
+    function renderLayout(layout, categories, sites) {
+        const categoryById = new Map(categories.map(cat => [cat.id, cat]));
+        const counts = new Map();
+        sites.forEach(site => counts.set(site.category, (counts.get(site.category) || 0) + 1));
+        const configured = new Map(layout.map(group => [group.id, group]));
+        const ids = [...configured.keys(), 'pinned', ...categories.map(cat => cat.id)];
+        const rows = [];
+        const seen = new Set();
+        for (const id of ids) {
+            if (seen.has(id)) continue;
+            seen.add(id);
+            const count = counts.get(id) || 0;
+            const fallback = id === 'pinned' || count >= 8
+                ? { width: 'full', variant: 'service', columns: 4, collapsed: false }
+                : count >= 4
+                    ? { width: 'half', variant: 'service', columns: 1, collapsed: false }
+                    : { width: 'third', variant: 'bookmark', columns: 1, collapsed: false };
+            const label = id === 'pinned' ? '常用站点' : categoryById.get(id)?.name || `已移除分类：${id}`;
+            rows.push(layoutRow(id, label, configured.get(id) || fallback));
+        }
+        byId('home_layout').replaceChildren(...rows);
+    }
     function refreshDefaultEngine(selected = byId('home_default_engine').value) {
         const select = byId('home_default_engine');
         select.replaceChildren();
@@ -64,6 +124,13 @@
             category_ids: preservedCategoryIds,
             category_limit: preservedCategoryLimit,
             pinned_ids: byId('home_pinned_mode').value === 'auto' ? null : selectedValues('home_pinned').map(Number),
+            layout: Array.from(byId('home_layout').children, row => ({
+                id: row.dataset.id,
+                width: row.querySelector('.home-layout-width').value,
+                variant: row.querySelector('.home-layout-variant').value,
+                columns: Number(row.querySelector('.home-layout-columns').value),
+                collapsed: row.querySelector('.home-layout-collapse input').checked,
+            })),
             default_engine: byId('home_default_engine').value,
             engines
         };
@@ -76,10 +143,10 @@
         byId('retryHomeBtn').hidden = true;
         byId('home_load_status').textContent = '正在加载站点…';
         try {
-            const response = await fetch('/api/sites');
-            if (!response.ok) throw new Error('加载失败');
-            const sites = await response.json();
-            if (!Array.isArray(sites)) throw new Error('数据格式错误');
+            const [response, categoryResponse] = await Promise.all([fetch('/api/sites'), fetch('/api/categories')]);
+            if (!response.ok || !categoryResponse.ok) throw new Error('加载失败');
+            const [sites, categories] = await Promise.all([response.json(), categoryResponse.json()]);
+            if (!Array.isArray(sites) || !Array.isArray(categories)) throw new Error('数据格式错误');
             const validation = DogNavHomeConfig.validate(rawConfig);
             if (validation.error) throw new Error(validation.error);
             const config = validation.value;
@@ -87,6 +154,7 @@
             preservedCategoryLimit = config.category_limit;
             byId('home_pinned_mode').value = config.pinned_ids === null ? 'auto' : 'custom';
             byId('home_pinned').replaceChildren(...sites.map(s => checkbox(s.id, s.name, config.pinned_ids?.includes(Number(s.id)))));
+            renderLayout(config.layout, categories, sites);
             // Preserve references to removed entries until an administrator explicitly clears them.
             for (const id of config.pinned_ids || []) if (!sites.some(s => Number(s.id) === id)) byId('home_pinned').append(checkbox(id, `已移除站点：${id}`, true));
             flags.forEach(key => byId(key).checked = config[key]);

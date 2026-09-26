@@ -544,7 +544,7 @@ const CASES = [
         name: 'settings: PUT as admin returns 200 with Deprecation/Sunset headers',
         method: 'PUT', path: '/api/settings',
         auth: true,
-        body: { site_name: 'DogNav' },
+        body: { site_name: 'Mirza' },
         expectStatus: 200,
         expectFields: { message: 'string', deprecated: 'boolean' },
         check(res) {
@@ -578,7 +578,7 @@ const CASES = [
         name: 'admin settings: PUT as admin returns 200, boolean value normalized to string',
         method: 'PUT', path: '/api/admin/settings',
         auth: true,
-        body: { site_name: 'DogNav', submission_enabled: false },
+        body: { site_name: 'Mirza', submission_enabled: false },
         expectStatus: 200,
         expectFields: { message: 'string' },
         async check(res, state, ctx) {
@@ -981,6 +981,89 @@ const CASES = [
             assert.equal(res.body.results[0].status, 'skipped');
             assert.equal(res.body.summary.skipped, 1);
         },
+    },
+
+    // ── Dashboard widgets ──
+    {
+        name: 'widgets: admin create requires authentication',
+        method: 'POST', path: '/api/admin/widgets',
+        body: { site_id: null, type: 'github', visibility: 'public', enabled: true, sort_order: 0, config: { owner: 'octocat', repo: 'Hello-World' } },
+        expectStatus: 401, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: editor cannot create',
+        method: 'POST', path: '/api/admin/widgets', authToken: s => s.editorToken,
+        body: { site_id: null, type: 'github', visibility: 'public', enabled: true, sort_order: 0, config: { owner: 'octocat', repo: 'Hello-World' } },
+        expectStatus: 403, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: reject private upstream host',
+        method: 'POST', path: '/api/admin/widgets', auth: true,
+        body: { site_id: null, type: 'custom_json', visibility: 'public', enabled: true, sort_order: 0, config: { url: 'https://127.0.0.1/data', mappings: [{ label: 'Value', path: 'value' }] } },
+        expectStatus: 400, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: reject credential-bearing URL',
+        method: 'POST', path: '/api/admin/widgets', auth: true,
+        body: { site_id: null, type: 'custom_json', visibility: 'public', enabled: true, sort_order: 0, config: { url: 'https://example.org/data?api_key=secret', mappings: [{ label: 'Value', path: 'value' }] } },
+        expectStatus: 400, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: admin creates public widget',
+        method: 'POST', path: '/api/admin/widgets', auth: true,
+        body: { site_id: null, type: 'github', visibility: 'public', enabled: true, sort_order: 2, config: { owner: 'octocat', repo: 'Hello-World' } },
+        expectStatus: 201, expectFields: { id: 'number', config: 'object', enabled: 'boolean' },
+        check(res, state) { state.publicWidgetId = res.body.id; },
+    },
+    {
+        name: 'widgets: admin creates private widget',
+        method: 'POST', path: '/api/admin/widgets', auth: true,
+        body: { site_id: null, type: 'github', visibility: 'private', enabled: true, sort_order: 1, config: { owner: 'octocat', repo: 'Hello-World' } },
+        expectStatus: 201, expectFields: { id: 'number', config: 'object' },
+        check(res, state) { state.privateWidgetId = res.body.id; },
+    },
+    {
+        name: 'widgets: public list contains only public metadata',
+        method: 'GET', path: '/api/widgets', expectStatus: 200, expectType: 'array',
+        check(res, state) {
+            assert.equal(res.body.length, 1);
+            assert.equal(res.body[0].id, state.publicWidgetId);
+            assert.deepEqual(Object.keys(res.body[0]).sort(), ['enabled', 'id', 'site_id', 'sort_order', 'type', 'visibility']);
+            assert.ok(!JSON.stringify(res.body).includes('octocat'));
+        },
+    },
+    {
+        name: 'widgets: private data requires admin',
+        method: 'GET', path: s => `/api/widgets/${s.privateWidgetId}/data`,
+        expectStatus: 401, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: editor cannot read private data',
+        method: 'GET', path: s => `/api/widgets/${s.privateWidgetId}/data`, authToken: s => s.editorToken,
+        expectStatus: 403, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: admin list includes full configs',
+        method: 'GET', path: '/api/admin/widgets', auth: true,
+        expectStatus: 200, expectType: 'array',
+        check(res) { assert.equal(res.body.length, 2); assert.equal(res.body[0].config.owner, 'octocat'); },
+    },
+    {
+        name: 'widgets: update visibility and order',
+        method: 'PUT', path: s => `/api/admin/widgets/${s.publicWidgetId}`, auth: true,
+        body: { site_id: null, type: 'weather', visibility: 'private', enabled: false, sort_order: 4, config: { latitude: 31.2, longitude: 121.5 } },
+        expectStatus: 200, expectFields: { id: 'number', config: 'object', enabled: 'boolean' },
+        check(res) { assert.equal(res.body.enabled, false); assert.equal(res.body.type, 'weather'); },
+    },
+    {
+        name: 'widgets: disabled widget data is unavailable',
+        method: 'GET', path: s => `/api/widgets/${s.publicWidgetId}/data`,
+        expectStatus: 404, expectFields: { error: 'string' },
+    },
+    {
+        name: 'widgets: delete removes widget',
+        method: 'DELETE', path: s => `/api/admin/widgets/${s.publicWidgetId}`, auth: true,
+        expectStatus: 200, expectFields: { success: 'boolean' },
     },
 
     // ── Sites delete (last: needs state.siteId intact) ──

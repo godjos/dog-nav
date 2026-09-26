@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 首页脚本（个人工作台 Start Page）
+// Mirza 首页脚本（个人工作台 Start Page）
 // 站点设置（favicon、标题、主题色、页脚、投稿开关）由
 // /js/settings-loader.js 统一加载。
 // 单页结构：问候/时钟 → 搜索 → 常用 Dock → 轻量状态 →
@@ -29,6 +29,7 @@ if (savedTheme) H.setAttribute('data-theme', savedTheme);
 // DATA — 站点与分类只来自后端 API，无硬编码回退
 // ═══════════════════════════════════════════
 const S = []; // GET /api/sites（仅 status === 'active'）
+const pinnedGroupEl = document.getElementById('pinnedGroup');
 
 let homeConfig = DogNavHomeConfig.parse(null);
 let E = Object.fromEntries(homeConfig.engines.map(e => [e.id, { u: e.url, n: e.name }]));
@@ -46,6 +47,62 @@ const VIEW_META = {
 
 let curE = 'baidu', curView = 'all', curTag = null;
 let sitesLoaded = false; // /api/sites 成功返回后才为 true
+document.getElementById('browseToolsToggle').addEventListener('click', event => {
+    const tools = document.getElementById('browseTools');
+    tools.hidden = !tools.hidden;
+    event.currentTarget.setAttribute('aria-expanded', String(!tools.hidden));
+});
+const widgetData = new Map();
+let widgetMeta = [];
+
+async function loadWidgets() {
+    const token = !previewMode ? sessionStorage.getItem('admin_token') : null;
+    try {
+        const publicRes = await fetch('/api/widgets');
+        if (!publicRes.ok) return;
+        const publicWidgets = await publicRes.json();
+        let privateWidgets = [];
+        if (token) {
+            const adminRes = await fetch('/api/admin/widgets', { headers: { Authorization: `Bearer ${token}` } });
+            if (adminRes.ok) privateWidgets = (await adminRes.json()).filter(w => w.enabled && w.visibility === 'private');
+        }
+        widgetMeta = [...publicWidgets, ...privateWidgets].filter(w => w.enabled !== false);
+        await Promise.all(widgetMeta.map(async w => {
+            try {
+                const headers = w.visibility === 'private' ? { Authorization: `Bearer ${token}` } : {};
+                const res = await fetch(`/api/widgets/${encodeURIComponent(w.id)}/data`, { headers });
+                if (res.ok) widgetData.set(String(w.id), await res.json());
+            } catch { /* Widget failure must not hide the linked site. */ }
+        }));
+        if (sitesLoaded) render();
+    } catch { /* Widget API may be unavailable; site navigation still works. */ }
+}
+
+function buildWidgetFields(siteId) {
+    const wrap = document.createElement('div');
+    wrap.className = 'widget-fields';
+    const widgets = widgetMeta.filter(w => String(w.site_id ?? '') === String(siteId ?? '') && widgetData.has(String(w.id)));
+    for (const w of widgets) {
+        const data = widgetData.get(String(w.id));
+        if (!Array.isArray(data.fields)) continue;
+        const panel = document.createElement('div');
+        panel.className = 'widget-panel';
+        panel.dataset.state = data.state || 'unknown';
+        panel.title = data.updated_at ? `更新于 ${data.updated_at}` : '';
+        for (const field of data.fields.slice(0, 4)) {
+            const item = document.createElement('span');
+            item.className = 'widget-field';
+            const value = document.createElement('strong');
+            value.textContent = `${field.value ?? '—'}${field.unit ? ' ' + field.unit : ''}`;
+            const label = document.createElement('small');
+            label.textContent = String(field.label || '');
+            item.append(value, label);
+            panel.appendChild(item);
+        }
+        if (panel.childElementCount) wrap.appendChild(panel);
+    }
+    return wrap;
+}
 
 // ═══════════════════════════════════════════
 // LOCAL STORAGE — 收藏与最近访问（无账号）
@@ -178,21 +235,64 @@ function buildFavIcon(s, size = 36) {
     return el;
 }
 
-function buildCard(s) {
+function bookmarkAbbr(name) {
+    const words = name.trim().split(/\s+/);
+    const letters = words.length > 1
+        ? words.slice(0, 2).map(word => Array.from(word)[0])
+        : Array.from(name).slice(0, 2);
+    return letters.join('').toUpperCase();
+}
+
+function buildCardTags(s) {
+    const tags = Array.isArray(s.tags) ? s.tags.filter(t => t && t.name) : [];
+    if (!tags.length) return null;
+    const tagRow = document.createElement('div');
+    tagRow.className = 'card-tags';
+    for (const [index, tag] of tags.entries()) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'card-tag';
+        button.textContent = tag.name;
+        button.hidden = index >= 2;
+        button.addEventListener('click', () => setTagFilter(tag));
+        tagRow.appendChild(button);
+    }
+    if (tags.length > 2) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'card-tag card-tag-more';
+        more.textContent = `+${tags.length - 2}`;
+        more.setAttribute('aria-expanded', 'false');
+        more.setAttribute('aria-label', `显示 ${s.name} 的其他 ${tags.length - 2} 个标签`);
+        more.addEventListener('click', () => {
+            const expanded = more.getAttribute('aria-expanded') !== 'true';
+            for (const [index, button] of [...tagRow.querySelectorAll('.card-tag:not(.card-tag-more)')].entries()) button.hidden = index >= 2 && !expanded;
+            more.setAttribute('aria-expanded', String(expanded));
+            more.textContent = expanded ? '收起' : `+${tags.length - 2}`;
+        });
+        tagRow.appendChild(more);
+    }
+    return tagRow;
+}
+
+function buildCard(s, variant = 'service') {
     const name = s.name;
     const url = sanitizeUrl(s.url);
     // 名称缺失或 URL 非法（非 http/https）时不渲染该卡片
     if (!name || !url) return null;
     const desc = s.description || '';
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
     const id = s.id || '';
 
+    const card = document.createElement('div');
+    card.className = `card card-${variant} rv`;
+    card.dataset.id = id;
     const a = document.createElement('a');
     a.href = url;
     a.target = '_blank';
     a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
-    a.className = 'card rv';
-    a.title = `${name} — ${desc}`;
-    a.dataset.id = id;
+    a.className = 'card-link';
+    a.title = `${name} — ${desc || hostname}`;
     a.addEventListener('click', () => {
         if (id) addRecent(id);
         trackClick(String(id));
@@ -200,8 +300,8 @@ function buildCard(s) {
 
     const row = document.createElement('div');
     row.className = 'card-row';
-    const fav = buildFavIcon(s, 24);
-    fav.className = 'card-fav';
+    const fav = buildFavIcon(s, variant === 'bookmark' ? 24 : 32);
+    fav.className = variant === 'bookmark' ? 'card-abbr' : 'card-fav';
 
     const nameEl = document.createElement('div');
     nameEl.className = 'card-name';
@@ -210,9 +310,26 @@ function buildCard(s) {
     const textCol = document.createElement('div');
     textCol.className = 'card-text';
     textCol.append(nameEl);
+    const descEl = document.createElement('div');
+    descEl.className = 'card-desc';
+    descEl.textContent = desc || hostname;
+    textCol.append(descEl);
 
-    row.append(fav, textCol, buildStatusDot(s));
+    row.append(fav, textCol);
+    if (variant === 'bookmark') {
+        const domain = document.createElement('span');
+        domain.className = 'card-domain';
+        domain.textContent = hostname;
+        domain.title = domain.textContent;
+        row.append(domain);
+    }
+    row.append(buildStatusDot(s));
     a.append(row);
+    card.append(a);
+    const fields = id ? buildWidgetFields(id) : document.createElement('div');
+    if (fields.childElementCount) card.appendChild(fields);
+    const tagRow = buildCardTags(s);
+    if (tagRow) card.appendChild(tagRow);
 
     if (id) {
         const pin = document.createElement('button');
@@ -232,7 +349,7 @@ function buildCard(s) {
             pin.setAttribute('aria-pressed', on ? 'true' : 'false');
             pin.setAttribute('aria-label', pin.title);
         });
-        a.appendChild(pin);
+        card.appendChild(pin);
 
         const star = document.createElement('button');
         star.type = 'button';
@@ -254,7 +371,7 @@ function buildCard(s) {
             star.setAttribute('aria-label', star.title);
             if (curView === 'fav' && !on) render();
         });
-        a.appendChild(star);
+        card.appendChild(star);
 
         const report = document.createElement('button');
         report.type = 'button';
@@ -267,10 +384,10 @@ function buildCard(s) {
             e.stopPropagation();
             reportSite(id, report);
         });
-        a.appendChild(report);
+        card.appendChild(report);
     }
 
-    return a;
+    return card;
 }
 
 // ═══════════════════════════════════════════
@@ -451,11 +568,11 @@ function buildNote(text, linkText, linkHref, btnText, btnFn) {
     return note;
 }
 
-function buildCardGrid(items) {
+function buildCardGrid(items, variant = 'service') {
     const grid = document.createElement('div');
-    grid.className = 'card-grid';
+    grid.className = `card-grid card-grid-${variant}`;
     items.forEach(s => {
-        const card = buildCard(s);
+        const card = buildCard(s, variant);
         if (card) grid.appendChild(card);
     });
     return grid;
@@ -471,10 +588,10 @@ function pinnedSites() {
         .filter(s => s && s.status === 'active');
 }
 
-// Dock：8~10 个高频入口，图标为视觉主体；固定/移除在下方站点卡片 📌 上操作
+// 常用服务组：高频入口显示图标、站名、说明或域名；编辑操作沿用原有固定列表
 function renderDock() {
-    const dock = document.getElementById('dockBar');
-    const hint = document.getElementById('dockHint');
+    const dock = pinnedGroupEl.querySelector('#dockBar');
+    const hint = pinnedGroupEl.querySelector('#dockHint');
     if (!dock) return;
     dock.textContent = '';
     const items = pinnedSites().slice(0, PINNED_MAX);
@@ -487,13 +604,20 @@ function renderDock() {
         a.href = url;
         a.target = '_blank';
         a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
-        a.title = s.name;
+        const hostname = new URL(url).hostname.replace(/^www\./, '');
+        a.title = `${s.name} — ${s.description || hostname}`;
         const ico = buildFavIcon(s, 32);
         ico.className = 'dock-ic';
         const name = document.createElement('span');
         name.className = 'dock-name';
         name.textContent = s.name;
-        a.append(ico, name);
+        const description = document.createElement('span');
+        description.className = 'dock-desc';
+        description.textContent = s.description || hostname;
+        const textCol = document.createElement('span');
+        textCol.className = 'dock-text';
+        textCol.append(name, description);
+        a.append(ico, textCol, buildStatusDot(s));
         a.addEventListener('click', () => {
             if (s.id) {
                 addRecent(s.id);
@@ -503,6 +627,10 @@ function renderDock() {
         const entry = document.createElement('div');
         entry.className = 'dock-entry';
         entry.appendChild(a);
+        const tagRow = buildCardTags(s);
+        if (tagRow) entry.appendChild(tagRow);
+        const fields = buildWidgetFields(s.id);
+        if (fields.childElementCount) entry.appendChild(fields);
         if (dockEditing) {
             const controls = document.createElement('div');
             controls.className = 'dock-tools';
@@ -617,6 +745,7 @@ function renderStatusRow() {
 function renderHome() {
     renderDock();
     renderStatusRow();
+    document.getElementById('headerWidgets').replaceChildren(buildWidgetFields(null));
     document.getElementById('stRecent').hidden = !homeConfig.show_recent;
     document.getElementById('stFav').hidden = !homeConfig.show_favorites;
     document.getElementById('stHealth').hidden = !homeConfig.show_health;
@@ -670,15 +799,41 @@ function renderBrowse() {
     const items = S.filter(siteMatchesFilters);
 
     if (curView === 'all') {
-        // 「全部」：分类标题（页内跳转锚点）+ 该分类全部站点，默认完整展开
+        // 配置顺序包含常用组；常用站点不会在下方分类重复出现。
         const g = {};
-        items.forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
+        items.filter(s => !isPinned(s.id)).forEach(s => { if (!g[s.category]) g[s.category] = []; g[s.category].push(s); });
         const orderedKeys = [...new Set([...Object.keys(C), ...Object.keys(g)])].filter(k => g[k]);
-        for (const k of orderedKeys) {
+        const configured = Array.isArray(homeConfig.layout) ? homeConfig.layout : [];
+        const layout = [...configured, ...['pinned', ...orderedKeys].filter(id => !configured.some(item => item.id === id)).map(id => ({ id }))];
+        const groups = document.createElement('div');
+        groups.className = 'site-groups';
+        for (const entry of layout) {
+            const k = entry.id;
+            if (k === 'pinned') {
+                const pinnedGroup = pinnedGroupEl;
+                if (!pinnedGroup) continue;
+                pinnedGroup.className = `dock-sec site-group site-group-${entry.width || 'full'}`;
+                pinnedGroup.hidden = pinnedSites().length === 0;
+                pinnedGroup.style.setProperty('--group-columns', String(entry.columns || 4));
+                applyGroupCollapse(pinnedGroup, entry, pinnedGroup.querySelector('.dock-edit-bar'), pinnedGroup.querySelector('.dock'));
+                groups.appendChild(pinnedGroup);
+                continue;
+            }
+            if (!g[k]) continue;
             const c = C[k] || { i: '📁', l: k };
-            a.appendChild(buildSecHead(c.i, c.l, k));
-            a.appendChild(buildCardGrid(g[k]));
+            const group = document.createElement('section');
+            const size = entry.width || (g[k].length >= 8 ? 'full' : g[k].length >= 4 ? 'half' : 'third');
+            const variant = entry.variant || (size === 'third' ? 'bookmark' : 'service');
+            const columns = entry.columns || (size === 'full' ? 4 : 1);
+            group.className = `site-group site-group-${size}`;
+            group.style.setProperty('--group-columns', String(columns));
+            const head = buildSecHead(c.i, c.l, k);
+            const grid = buildCardGrid(g[k], variant);
+            group.append(head, grid);
+            applyGroupCollapse(group, entry, head, grid);
+            groups.appendChild(group);
         }
+        a.appendChild(groups);
     } else {
         let viewItems = items;
         const byId = new Map(S.map(s => [String(s.id), s]));
@@ -716,6 +871,22 @@ function renderBrowse() {
 
     initCatSpy();
     initReveal();
+}
+
+function applyGroupCollapse(group, entry, head, body) {
+    head.querySelector('.group-collapse')?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'group-collapse';
+    button.textContent = entry.collapsed ? '展开' : '收起';
+    button.setAttribute('aria-expanded', String(!entry.collapsed));
+    body.hidden = !!entry.collapsed;
+    button.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        button.setAttribute('aria-expanded', String(!body.hidden));
+        button.textContent = body.hidden ? '展开' : '收起';
+    });
+    head.appendChild(button);
 }
 
 function render() {
@@ -1142,6 +1313,8 @@ function setTagFilter(tag) {
         curTag = { id: tag.id, name: tag.name };
     }
     updateTagChip();
+    document.getElementById('browseTools').hidden = false;
+    document.getElementById('browseToolsToggle').setAttribute('aria-expanded', 'true');
     render();
     scrollBrowseHead();
 }
@@ -1289,7 +1462,7 @@ document.getElementById('prefFileInput').addEventListener('change', async (event
         const payload = JSON.parse(await file.text());
         if (!payload || payload.app !== 'dognav' || payload.kind !== 'preferences' ||
             !payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) {
-            toast('文件格式错误：不是 DogNav 偏好文件');
+            toast('文件格式错误：不是有效的偏好文件');
             return;
         }
         const entries = Object.entries(payload.data).filter(([key]) => PREF_KEYS.includes(key));
@@ -1305,23 +1478,16 @@ document.getElementById('prefFileInput').addEventListener('change', async (event
 });
 
 // ═══════════════════════════════════════════
-// WORKBENCH CHROME — 时钟/问候、⌘K、底部工具与设置弹层
+// WORKBENCH CHROME — 顶栏时钟、⌘K、底部工具与设置弹层
 // ═══════════════════════════════════════════
 function tickClock() {
     const clock = document.getElementById('clock');
-    const greet = document.getElementById('greet');
-    if (!clock && !greet) return;
+    if (!clock) return;
     const d = new Date();
-    if (clock) {
-        clock.textContent =
-            d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }) +
-            ' · ' +
-            d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-    }
-    if (greet) {
-        const h = d.getHours();
-        greet.textContent = h < 6 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
-    }
+    clock.textContent =
+        d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }) +
+        ' · ' +
+        d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 setInterval(tickClock, 20000);
 tickClock();
@@ -1344,7 +1510,7 @@ document.addEventListener('keydown', e => {
     }
 });
 
-// 顶栏已移除：时钟为右上角浮动元素，主题切换在设置弹层内（见下方 syncThemeSeg）
+// 主题切换在设置弹层内（见下方 syncThemeSeg）；顶栏只保留品牌、站点说明、时钟与组件
 
 // 右下角底部工具：全部站点（回到完整分组列表）/ 最近使用 / 设置
 document.getElementById('btnAllSites').addEventListener('click', () => selectView('all'));
@@ -1549,6 +1715,7 @@ function setHomeLoadState(message, retry = false) {
     await window.DogNavSettings.ready;
     applyHomeConfig(window.DogNavSettings.current);
     await loadData();
+    loadWidgets();
 
     // ?q=xxx — 与 index.html 的 SearchAction JSON-LD 对齐：自动填入并执行站内搜索
     const q = new URLSearchParams(window.location.search).get('q');

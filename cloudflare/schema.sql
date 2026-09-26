@@ -1,4 +1,4 @@
--- DogNav D1 Schema for Cloudflare
+-- Mirza D1 Schema for Cloudflare
 
 CREATE TABLE IF NOT EXISTS sites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_widgets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER,
+    type TEXT NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'public',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    config_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_widget_cache (
+    widget_id INTEGER PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pages (

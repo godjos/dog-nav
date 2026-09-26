@@ -1,4 +1,4 @@
--- DogNav Seed Data for Cloudflare D1
+-- Mirza Seed Data for Cloudflare D1
 -- Generated from seed.js
 
 -- NOTE: no admin user is seeded here. On first request the Worker creates
@@ -24,10 +24,10 @@ INSERT INTO categories (id, name, icon, sort_order, is_active) VALUES
 -- 3. Default Settings (9 key-value pairs)
 -- ═══════════════════════════════════════════
 INSERT INTO settings (key, value) VALUES
-('site_name', 'DogNav'),
+('site_name', 'Mirza'),
 ('site_description', '发现互联网的无限精彩'),
 ('site_icon', ''),
-('footer_text', 'DogNav © 2026 — Design by CangDog'),
+('footer_text', 'Mirza © 2026 — Design by CangDog'),
 ('footer_blog_url', 'https://www.cangdog.com'),
 ('footer_github_url', 'https://github.com/BYGD'),
 ('theme_primary_color', '#667eea'),
@@ -38,7 +38,7 @@ INSERT INTO settings (key, value) VALUES
 -- 4. Default Pages (3)
 -- ═══════════════════════════════════════════
 INSERT INTO pages (id, title, content) VALUES
-('about', '关于 DogNav', 'DogNav 是一个精选网址导航，致力于帮助用户发现和探索互联网上优质的网站和工具。我们精心挑选和分类每一个站点，让您能够快速找到所需的资源。'),
+('about', '关于 Mirza', 'Mirza 是一个个人导航工作台，参考 DogNav 的精选站点与 Homepage 的紧凑布局，致力于帮助用户发现和探索互联网上优质的网站和工具。我们精心挑选和分类每一个站点，让您能够快速找到所需的资源。'),
 ('contribute', '提交站点', '如果你发现了好网站，欢迎提交给我们。我们会审核后将其添加到导航中。请确保提交的网站内容健康、积极向上。'),
 ('links', '友情链接', '以下是与本站有友好往来的网站，欢迎交换友情链接。如果您也想加入友情链接，请先添加本站链接后通过邮件联系我们。');
 

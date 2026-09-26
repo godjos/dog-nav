@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 浏览器书签解析器（公共前后台共享，UMD）
+// Mirza 浏览器书签解析器（公共前后台共享，UMD）
 //   把 Chrome / Firefox / Edge 导出的书签文件解析成统一树：
 //     - Chrome/Firefox JSON（roots/children 或数组）
 //     - Netscape Bookmark HTML（书签.htm，常见 <DL>/<DT><A>/<H3> 结构）

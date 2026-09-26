@@ -1,5 +1,7 @@
 import homeConfig from '../../public/js/home-config.js';
 import settingsSchema from '../../public/js/settings-schema.js';
+import widgetModule from '../../lib/widgets.js';
+const { validateWidget, adminWidget, publicWidget, widgetData } = widgetModule;
 const { validateSettingsUpdate } = settingsSchema;
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -50,6 +52,8 @@ async function initDB(db, env) {
         db.prepare(`CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, reason TEXT, reporter_email TEXT, detail TEXT, reporter_ip TEXT, status TEXT DEFAULT 'pending', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, resolved_at DATETIME, resolved_by INTEGER)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action TEXT NOT NULL, detail TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, ip_address TEXT, user_agent TEXT, referrer TEXT, clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS dashboard_widgets (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, type TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'public', enabled INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS dashboard_widget_cache (widget_id INTEGER PRIMARY KEY, config_json TEXT NOT NULL, data_json TEXT NOT NULL, fetched_at INTEGER NOT NULL)`),
     ]);
 
     // ── Idempotent migrations for databases created by older versions ──
@@ -82,9 +86,9 @@ async function initDB(db, env) {
     if (env.INITIAL_ADMIN_PASSWORD) {
         await db.prepare("INSERT OR IGNORE INTO users (username, password, role, must_change_password) VALUES ('admin', ?, 'admin', 1)")
             .bind(await hashPassword(String(env.INITIAL_ADMIN_PASSWORD))).run();
-        console.log('DogNav: default admin created (username: admin, must change password on first login).');
+        console.log('Mirza: default admin created (username: admin, must change password on first login).');
     } else {
-        console.warn('DogNav: INITIAL_ADMIN_PASSWORD not set — no admin user created. Set it to bootstrap an admin account.');
+        console.warn('Mirza: INITIAL_ADMIN_PASSWORD not set — no admin user created. Set it to bootstrap an admin account.');
     }
 
     await db.batch([
@@ -102,10 +106,10 @@ async function initDB(db, env) {
 
     // Default settings — kept in sync with the Express backend (server.js).
     await db.batch([
-        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'DogNav')"),
+        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'Mirza')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_description', '发现互联网的无限精彩')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('site_icon', '')"),
-        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_text', 'DogNav © 2026 — Design by CangDog')"),
+        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_text', 'Mirza © 2026 — Design by CangDog')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_blog_url', 'https://www.cangdog.com')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('footer_github_url', 'https://github.com/BYGD')"),
         db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('theme_primary_color', '#667eea')"),
@@ -114,13 +118,13 @@ async function initDB(db, env) {
     ]);
 
     await db.batch([
-        db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('about', '关于 DogNav', 'DogNav 是一个精选网址导航，致力于帮助用户发现和探索互联网上优质的网站和工具。')"),
+        db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('about', '关于 Mirza', 'Mirza 是一个个人导航工作台，参考 DogNav 的精选站点与 Homepage 的紧凑布局，收录了互联网上最优质的网站。')"),
         db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('contribute', '提交站点', '如果你发现了好网站，欢迎提交给我们。我们会审核后将其添加到导航中。')"),
         db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('links', '友情链接', '以下是与本站有友好往来的网站，欢迎交换友情链接。')"),
-        db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('guide', '使用指南', '<p>欢迎使用 DogNav 导航站！</p>')"),
+        db.prepare("INSERT OR IGNORE INTO pages (id, title, content) VALUES ('guide', '使用指南', '<p>欢迎使用 Mirza 导航站！</p>')"),
     ]);
 
-    console.log('DogNav: Database initialized with default data.');
+    console.log('Mirza: Database initialized with default data.');
 }
 
 // ── Init middleware: ensure DB is ready on every request ──
@@ -717,6 +721,71 @@ async function applySettingsUpdate(db, body, userId) {
     await logAction(db, userId, 'update_settings', 'Settings updated');
     return null;
 }
+
+// Dashboard widgets: public metadata excludes configuration and private rows.
+async function widgetById(db, id) {
+    return db.prepare('SELECT * FROM dashboard_widgets WHERE id=?').bind(id).first();
+}
+async function widgetSiteExists(db, siteId) {
+    return siteId === null || !!(await db.prepare('SELECT id FROM sites WHERE id=?').bind(siteId).first());
+}
+app.get('/api/widgets', async (c) => {
+    const { results } = await c.env.DB.prepare("SELECT * FROM dashboard_widgets WHERE enabled=1 AND visibility='public' ORDER BY sort_order,id").all();
+    return c.json(results.map(publicWidget));
+});
+app.get('/api/admin/widgets', requireAdmin, async (c) => {
+    const { results } = await c.env.DB.prepare('SELECT * FROM dashboard_widgets ORDER BY sort_order,id').all();
+    return c.json(results.map(adminWidget));
+});
+app.post('/api/admin/widgets', requireAdmin, async (c) => {
+    let widget;
+    try { widget = validateWidget(await c.req.json()); } catch (err) { return c.json({ error: err.message }, 400); }
+    if (!(await widgetSiteExists(c.env.DB, widget.site_id))) return c.json({ error: 'Site not found' }, 400);
+    const result = await c.env.DB.prepare('INSERT INTO dashboard_widgets (site_id,type,visibility,enabled,sort_order,config_json) VALUES (?,?,?,?,?,?)')
+        .bind(widget.site_id, widget.type, widget.visibility, widget.enabled, widget.sort_order, widget.config_json).run();
+    return c.json(adminWidget(await widgetById(c.env.DB, result.meta.last_row_id)), 201);
+});
+app.put('/api/admin/widgets/:id', requireAdmin, async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: 'Invalid widget id' }, 400);
+    if (!(await widgetById(c.env.DB, id))) return c.json({ error: 'Widget not found' }, 404);
+    let widget;
+    try { widget = validateWidget(await c.req.json()); } catch (err) { return c.json({ error: err.message }, 400); }
+    if (!(await widgetSiteExists(c.env.DB, widget.site_id))) return c.json({ error: 'Site not found' }, 400);
+    await c.env.DB.prepare('UPDATE dashboard_widgets SET site_id=?,type=?,visibility=?,enabled=?,sort_order=?,config_json=? WHERE id=?')
+        .bind(widget.site_id, widget.type, widget.visibility, widget.enabled, widget.sort_order, widget.config_json, id).run();
+    await c.env.DB.prepare('DELETE FROM dashboard_widget_cache WHERE widget_id=?').bind(id).run();
+    return c.json(adminWidget(await widgetById(c.env.DB, id)));
+});
+app.delete('/api/admin/widgets/:id', requireAdmin, async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: 'Invalid widget id' }, 400);
+    if (!(await widgetById(c.env.DB, id))) return c.json({ error: 'Widget not found' }, 404);
+    await c.env.DB.prepare('DELETE FROM dashboard_widgets WHERE id=?').bind(id).run();
+    await c.env.DB.prepare('DELETE FROM dashboard_widget_cache WHERE widget_id=?').bind(id).run();
+    return c.json({ success: true });
+});
+app.get('/api/widgets/:id/data', async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: 'Invalid widget id' }, 400);
+    const row = await widgetById(c.env.DB, id);
+    if (!row || !row.enabled) return c.json({ error: 'Widget not found' }, 404);
+    if (row.visibility === 'private') {
+        const token = c.req.header('Authorization')?.replace('Bearer ', '');
+        const session = await getSession(c.env.DB, token);
+        if (!session) return c.json({ error: 'Unauthorized' }, 401);
+        if (session.mustChange) return c.json({ error: 'password_change_required' }, 403);
+        if (session.role !== 'admin') return c.json({ error: 'Admin role required' }, 403);
+    }
+    c.header('Cache-Control', 'no-store');
+    const cacheStore = {
+        read: widgetId => c.env.DB.prepare('SELECT * FROM dashboard_widget_cache WHERE widget_id=?').bind(widgetId).first(),
+        write: (widgetId, configJson, dataJson, fetchedAt) => c.env.DB.prepare(
+            'INSERT OR REPLACE INTO dashboard_widget_cache (widget_id,config_json,data_json,fetched_at) VALUES (?,?,?,?)'
+        ).bind(widgetId, configJson, dataJson, fetchedAt).run(),
+    };
+    return c.json(await widgetData(row, fetch, cacheStore));
+});
 
 app.get('/api/settings', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT key, value FROM settings').all();
@@ -1504,7 +1573,7 @@ async function probeSiteUrl(siteUrl) {
             resp = await fetch(currentUrl, {
                 redirect: 'manual',
                 signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
-                headers: { 'User-Agent': 'DogNav-HealthCheck/1.0' },
+                headers: { 'User-Agent': 'Mirza-HealthCheck/1.0' },
             });
         } catch (err) {
             const msg = (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) ? 'Timeout' : 'Connection failed';

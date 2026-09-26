@@ -76,6 +76,7 @@ describe('homepage configuration', () => {
         assert.equal(result.value.show_recent, false);
         assert.equal(result.value.engines.length, 6);
         assert.equal(homeConfig.parse('{}').category_limit, 5);
+        assert.deepEqual(homeConfig.parse('{}').layout, []);
     });
 
     it('falls back safely and does not share mutable defaults', () => {
@@ -94,6 +95,16 @@ describe('homepage configuration', () => {
             { category_limit: 13 }, { category_limit: 1.5 }, { show_recent: 'false' }, { unknown: true },
             { engines: [] }, { default_engine: 'absent' }, { engines: [homeConfig.DEFAULTS.engines[0], homeConfig.DEFAULTS.engines[0]] },
         ]) assert.ok(homeConfig.validate(raw).error, JSON.stringify(raw));
+    });
+
+    it('validates ordered dashboard groups while accepting legacy configs', () => {
+        const pinned = { id: 'pinned', width: 'full', variant: 'service', columns: 4, collapsed: false };
+        const category = { id: 'tools', width: 'half', variant: 'bookmark', columns: 1, collapsed: true };
+        assert.deepEqual(homeConfig.validate({ layout: [pinned, category] }).value.layout, [pinned, category]);
+        assert.deepEqual(homeConfig.validate({}).value.layout, []);
+        for (const layout of [null, [pinned, pinned], [{ ...pinned, columns: 0 }], [{ ...pinned, width: 'tiny' }], [{ ...pinned, extra: 1 }]]) {
+            assert.ok(homeConfig.validate({ layout }).error, JSON.stringify(layout));
+        }
     });
 
     it('accepts query-value and path templates but rejects unsafe or ambiguous templates', () => {

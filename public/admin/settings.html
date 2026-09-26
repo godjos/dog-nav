@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogNav 设置</title>
+    <title>Mirza 设置</title>
     <link rel="stylesheet" href="/admin/admin.css">
     <link rel="stylesheet" href="/admin/home-settings.css">
+    <link rel="stylesheet" href="/admin/widget-settings.css">
     <style>        .card {
             background: white;
             border-radius: 12px;
@@ -112,8 +113,8 @@
 <body>
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <div class="logo">🐕</div>
-            <div class="text">Dog<span>Nav</span></div>
+            <div class="logo">👑</div>
+            <div class="text">Mir<span>za</span></div>
         </div>
         <nav class="sidebar-nav">
             <div class="nav-section">内容管理</div>
@@ -153,12 +154,12 @@
                 <h2>基本设置</h2>
                 <div class="form-group">
                     <label>站点名称</label>
-                    <input type="text" id="site_name" placeholder="DogNav">
+                    <input type="text" id="site_name" placeholder="Mirza">
                 </div>
                 <div class="form-group">
                     <label>站点描述</label>
                     <input type="text" id="site_description" placeholder="发现互联网的无限精彩">
-                    <div class="hint">用于首页问候语下方的副标题及页面描述；留空则不显示副标题</div>
+                    <div class="hint">用于浏览器页面描述及首页顶部的简短站点说明；留空则不显示说明</div>
                 </div>
                 <div class="form-group">
                     <label for="site_url">站点地址</label>
@@ -177,7 +178,7 @@
                 <div class="hint">首页显示在右下角「设置」弹层中，其他公共页面显示在页脚</div>
                 <div class="form-group">
                     <label>页脚文字</label>
-                    <input type="text" id="footer_text" placeholder="DogNav © 2026 — Design by CangDog">
+                    <input type="text" id="footer_text" placeholder="Mirza © 2026 — Design by CangDog">
                 </div>
                 <div class="form-group">
                     <label>博客链接</label>
@@ -219,6 +220,11 @@
                 <button type="button" id="retryHomeBtn" hidden>重新加载分类与站点</button>
                 <fieldset id="home_fields" disabled>
                     <div class="form-group">
+                        <label>分组排布</label>
+                        <p class="hint">按显示顺序排列分组。每组可选宽度、服务卡或书签行、组内列数和默认折叠；未配置的分类自动加入首页。</p>
+                        <div id="home_layout" class="home-layout"></div>
+                    </div>
+                    <div class="form-group">
                         <label for="home_pinned_mode">默认常用站点</label>
                         <select id="home_pinned_mode"><option value="auto">自动选择</option><option value="custom">自选站点（最多 12 个，不选则为空）</option></select>
                         <div id="home_pinned" class="home-choices"></div>
@@ -236,6 +242,28 @@
                 <label for="home_preview_width">预览尺寸</label><select id="home_preview_width"><option value="desktop">桌面</option><option value="mobile">手机</option></select>
                 <p>预览包含尚未保存的修改，不写入服务器，也不使用个人偏好。修改后请再次点击预览。</p>
                 <iframe id="home_preview" title="首页设置预览" hidden></iframe>
+            </div>
+
+            <div class="card" id="widget_config" data-role="admin">
+                <h2>工作台组件</h2>
+                <p class="hint">组件从公开 HTTPS 接口读取指标。设为私密后，仅管理员登录时显示；公开页面不会获得其配置或数据。</p>
+                <p id="widget_status" role="status"></p>
+                <button type="button" id="widgetRetryBtn" hidden>重试加载组件</button>
+                <div id="widget_list" class="widget-list"></div>
+                <form id="widget_form" hidden>
+                    <h3 id="widget_form_title">添加组件</h3>
+                    <input type="hidden" id="widget_id">
+                    <div class="widget-form-grid">
+                        <label>类型<select id="widget_type"><option value="github">GitHub 仓库</option><option value="uptimekuma">公开状态页</option><option value="custom_json">通用 JSON API</option><option value="weather">天气</option></select></label>
+                        <label>关联站点<select id="widget_site"></select></label>
+                        <label>可见性<select id="widget_visibility"><option value="public">公开</option><option value="private">仅管理员</option></select></label>
+                        <label>排序<input id="widget_sort" type="number" value="0" min="0" max="9999"></label>
+                    </div>
+                    <label class="widget-check"><input id="widget_enabled" type="checkbox" checked> 启用组件</label>
+                    <div id="widget_type_fields" class="widget-type-fields"></div>
+                    <div class="widget-form-actions"><button type="submit">保存组件</button><button type="button" id="widgetCancelBtn">取消</button></div>
+                </form>
+                <button type="button" id="widgetAddBtn" hidden>添加组件</button>
             </div>
 
             <div class="card">
@@ -268,5 +296,6 @@
     <script src="/js/settings-schema.js"></script>
     <script src="/admin/home-settings.js"></script>
     <script src="/admin/js/settings.js"></script>
+    <script src="/admin/widget-settings.js"></script>
 </body>
 </html>

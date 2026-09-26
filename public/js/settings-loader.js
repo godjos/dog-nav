@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// DogNav 共享设置加载器（公共页统一引入，需在 utils.js 之后、
+// Mirza 共享设置加载器（公共页统一引入，需在 utils.js 之后、
 // 各页面脚本之前引入）
 //   fetch /api/settings（失败静默回退默认值，不阻塞页面），
 //   然后把站点设置应用到当前页面：favicon、logo 文字、标题、
@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════
 (function () {
     const DEFAULTS = {
-        site_name: 'DogNav',
+        site_name: 'Mirza',
         site_description: '',
         site_icon: '',
         site_url: '',
@@ -112,8 +112,8 @@
         if (loaderLabel) loaderLabel.textContent = name;
 
         const title = document.title;
-        if (title.includes('DogNav')) {
-            document.title = title.split('DogNav').join(name);
+        if (title.includes('Mirza')) {
+            document.title = title.split('Mirza').join(name);
         } else if (!title.endsWith(' - ' + name)) {
             document.title = title + ' - ' + name;
         }

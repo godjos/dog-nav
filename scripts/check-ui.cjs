@@ -15,16 +15,34 @@ const { startTestServer, api } = require('../test/helpers');
         const names = ['ChatGPT', 'Claude', 'Cursor', 'Hugging Face', 'Kimi', 'Midjourney', 'Perplexity', 'Poe', '设计素材', '在线文档', '开发工具', '个人收藏'];
         const icons = ['🤖', '🧠', '⌨️', '🤗', '🌙', '🎨', '🔎', '🔮', 'S', '📄', 'D', '⭐'];
         for (let i = 1; i <= 12; i++) {
-            const res = await api(ctx.baseUrl, 'POST', '/api/sites', { token, body: { name: names[i - 1], url: `https://site${i}.example/`, category: 'tools', icon: icons[i - 1] } });
+            const res = await api(ctx.baseUrl, 'POST', '/api/sites', { token, body: { name: names[i - 1], url: `https://site${i}.example/`, category: 'tools', icon: icons[i - 1], description: i === 1 ? '智能对话与写作' : '' } });
             assert.equal(res.status, 200);
         }
         const sites = (await api(ctx.baseUrl, 'GET', '/api/sites')).body;
         const ids = sites.map(s => s.id);
+        for (const name of ['导航', '效率', '常用']) {
+            const created = await api(ctx.baseUrl, 'POST', '/api/tags', { token, body: { name, color: '#2563eb' } });
+            assert.equal(created.status, 200);
+        }
+        const tagIds = (await api(ctx.baseUrl, 'GET', '/api/tags')).body.map(tag => tag.id);
+        assert.equal((await api(ctx.baseUrl, 'POST', `/api/sites/${ids[8]}/tags`, { token, body: { tag_ids: tagIds } })).status, 200);
         browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
         const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.route('https://**/*', route => route.abort());
+        await page.route('**/api/widgets', route => route.fulfill({ json: [
+            { id: 101, site_id: null, type: 'weather', visibility: 'public', enabled: true, sort_order: 0 },
+            { id: 102, site_id: ids[0], type: 'github', visibility: 'public', enabled: true, sort_order: 1 },
+        ] }));
+        await page.route('**/api/admin/widgets', route => route.fulfill({ json: [
+            { id: 103, site_id: ids[0], type: 'github', visibility: 'private', enabled: true, sort_order: 2 },
+        ] }));
+        await page.route('**/api/widgets/*/data', route => {
+            const id = Number(route.request().url().match(/\/widgets\/(\d+)\/data$/)[1]);
+            if (id === 103) assert.equal(route.request().headers().authorization, `Bearer ${token}`);
+            route.fulfill({ json: { id, state: 'ok', fields: [{ label: 'Value', value: id }], updated_at: '2026-09-26T00:00:00Z' } });
+        });
         await page.addInitScript(({ token, ids }) => {
             sessionStorage.setItem('admin_token', token);
             sessionStorage.setItem('admin_logged_in', '1');
@@ -59,6 +77,13 @@ const { startTestServer, api } = require('../test/helpers');
         await page.evaluate(ids => localStorage.setItem('dognav-pinned', JSON.stringify(ids.slice(0, 8))), ids);
         await page.reload();
         await page.waitForFunction(() => document.querySelectorAll('.dock-item').length === 8);
+        await page.locator('#headerWidgets .widget-field').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#pinnedGroup .widget-panel').count(), 2, 'public and private widgets belong to pinned site card');
+        assert.equal(await page.locator('.card-tags .card-tag').count(), 4, 'three tags and overflow control render on the non-pinned card');
+        assert.equal(await page.locator('.card-tags .card-tag:visible').count(), 3);
+        await page.locator('.card-tag-more').first().click();
+        assert.equal(await page.locator('.card-tags .card-tag:visible').count(), 4);
+        assert.equal(await page.locator('.dock-desc').first().textContent(), '智能对话与写作');
         await page.locator('.card').first().waitFor({ state: 'attached' });
         await page.locator('#loader').waitFor({ state: 'hidden' });
         for (const [width, height] of [[1440, 900], [1024, 768], [390, 844], [360, 800]]) {
@@ -71,7 +96,7 @@ const { startTestServer, api } = require('../test/helpers');
                 }, theme);
                 await page.waitForFunction(() => document.querySelector('.card.vis'));
                 const layout = await page.evaluate(() => {
-                    const card = document.querySelector('.card').getBoundingClientRect();
+                    const card = document.querySelector(innerWidth <= 768 ? '.dock-item' : '.card').getBoundingClientRect();
                     const nav = document.querySelector('.bottom-nav').getBoundingClientRect();
                     const chip = document.getElementById('tagFilterChip');
                     chip.hidden = false;
@@ -125,6 +150,7 @@ const { startTestServer, api } = require('../test/helpers');
         await page.locator('#editDock').click();
         await page.locator('.card-star').first().click();
         assert.equal(await page.locator('#stFavNum').textContent(), '1');
+        await page.locator('#browseToolsToggle').click();
         await page.locator('.view-pill[data-view="fav"]').click();
         assert.equal(await page.locator('.card').count(), 1);
         await page.locator('.view-pill[data-view="all"]').click();
@@ -135,8 +161,40 @@ const { startTestServer, api } = require('../test/helpers');
         await page.locator('#btnSettings').click();
         await page.locator('[data-set-theme="dark"]').click();
         assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+        for (let i = 1; i <= 5; i++) {
+            const res = await api(ctx.baseUrl, 'POST', '/api/sites', { token, body: {
+                name: `Developer ${i}`, url: `https://dev${i}.example/`, category: 'dev'
+            } });
+            assert.equal(res.status, 200);
+        }
+        for (let i = 1; i <= 2; i++) {
+            const res = await api(ctx.baseUrl, 'POST', '/api/sites', { token, body: {
+                name: `Design ${i}`, url: `https://design${i}.example/`, category: 'design', description: '设计工具'
+            } });
+            assert.equal(res.status, 200);
+        }
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.reload();
+        await page.waitForFunction(() => document.querySelectorAll('.site-group').length === 4);
+        await page.locator('#loader').waitFor({ state: 'hidden' });
+        assert.equal(await page.locator('.site-group .card-service').count(), 9);
+        assert.equal(await page.locator('#pinnedGroup .dock-item').count(), 8);
+        const pinnedIds = await page.locator('#pinnedGroup .dock-item').evaluateAll(links => links.map(a => new URL(a.href).href));
+        const categoryIds = await page.locator('.card-link').evaluateAll(links => links.map(a => new URL(a.href).href));
+        assert.equal(pinnedIds.some(url => categoryIds.includes(url)), false, 'pinned links must not duplicate in category groups');
+        assert.equal(await page.locator('.site-group-half .card-service').count(), 9);
+        assert.ok(await page.locator('.site-group-half .card-service').first().evaluate(el => el.getBoundingClientRect().width > 400), 'half-width service cards must retain readable width');
+        assert.equal(await page.locator('.site-group-third .card-bookmark').count(), 2);
+        assert.equal(await page.locator('.site-group-third .card-domain').first().textContent(), 'design1.example');
+        assert.equal(await page.locator('.site-group-third .card-abbr').count(), 2);
+        assert.equal(await page.locator('.card-link .card-star').count(), 0, 'card actions must be outside links');
+        await page.evaluate(() => document.querySelectorAll('.rv').forEach(el => el.classList.add('vis')));
+        await page.screenshot({ path: '/tmp/dognav-ui/home-mixed-groups-dark-full.png', fullPage: true });
+        await page.setViewportSize({ width: 360, height: 800 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'mixed groups must not overflow mobile viewport');
+        await page.screenshot({ path: '/tmp/dognav-ui/home-mixed-groups-mobile-dark-full.png', fullPage: true });
         assert.deepEqual(errors, []);
-        console.log('Browser checks passed: 12-pin behavior, failure/retry, settings, search, editing, favorites, drawer, and 8 responsive light/dark layouts.');
+        console.log('Browser checks passed: 12-pin behavior, failure/retry, settings, search, editing, favorites, drawer, mixed group layouts, and 8 responsive light/dark layouts.');
     } finally {
         if (browser) await browser.close();
         await ctx.close();

@@ -541,7 +541,7 @@ const PUBLIC_SETTING_KEYS = [
 test('settings: GET is public and exposes exactly the 11 whitelisted keys', async () => {
     const res = await api(ctx.baseUrl, 'GET', '/api/settings');
     assert.equal(res.status, 200);
-    assert.equal(res.body.site_name, 'DogNav');
+    assert.equal(res.body.site_name, 'Mirza');
     assert.deepEqual(Object.keys(res.body).sort(), [...PUBLIC_SETTING_KEYS].sort(),
         'public settings expose exactly the 11 whitelisted keys');
     assert.ok(!('weather_api_key' in res.body), 'legacy secret key not exposed publicly');
@@ -561,7 +561,7 @@ test('settings: PUT (deprecated alias) requires auth and marks the response depr
 
     const ok = await api(ctx.baseUrl, 'PUT', '/api/settings', {
         token: adminToken,
-        body: { site_name: 'DogNav' },
+        body: { site_name: 'Mirza' },
     });
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get('deprecation'), 'true');
@@ -573,7 +573,7 @@ test('settings: PUT (deprecated alias) requires auth and marks the response depr
 test('admin settings: PUT as admin returns 200 and normalizes boolean values', async () => {
     const ok = await api(ctx.baseUrl, 'PUT', '/api/admin/settings', {
         token: adminToken,
-        body: { site_name: 'DogNav', submission_enabled: false },
+        body: { site_name: 'Mirza', submission_enabled: false },
     });
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.body, { message: 'Settings updated' });
@@ -627,8 +627,8 @@ test('users: admin can create an editor; editor is blocked from admin-only route
 
 test('permissions: editor gets 403 on admin-only routes, admin gets 200', async () => {
     for (const [method, path, body] of [
-        ['PUT', '/api/settings', { site_name: 'DogNav' }],
-        ['PUT', '/api/admin/settings', { site_name: 'DogNav' }],
+        ['PUT', '/api/settings', { site_name: 'Mirza' }],
+        ['PUT', '/api/admin/settings', { site_name: 'Mirza' }],
         ['GET', '/api/admin/settings'],
         ['GET', '/api/logs'],
         ['GET', '/api/export'],

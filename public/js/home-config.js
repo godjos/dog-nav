@@ -4,7 +4,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
     const DEFAULTS = Object.freeze({
-        category_ids: null, category_limit: 5, pinned_ids: null,
+        category_ids: null, category_limit: 5, pinned_ids: null, layout: Object.freeze([]),
         show_recent: true, show_favorites: true, show_health: true, show_read_later: true,
         default_engine: 'baidu',
         engines: Object.freeze([
@@ -50,6 +50,17 @@
             if (ids !== null && (!Array.isArray(ids) || ids.length > max || !ids.every(valid) || new Set(ids).size !== ids.length)) {
                 return fail(`${key} 必须为 null 或至多 ${max} 个不重复有效 ID`);
             }
+        }
+        if (!Array.isArray(value.layout) || value.layout.length > 101) return fail('layout 必须为至多 101 个分组的数组');
+        const layoutIds = new Set();
+        for (const group of value.layout) {
+            if (!isObject(group) || Object.keys(group).some(key => !['id', 'width', 'variant', 'columns', 'collapsed'].includes(key)) ||
+                typeof group.id !== 'string' || !group.id.trim() || group.id.length > 120 || layoutIds.has(group.id) ||
+                !['full', 'half', 'third'].includes(group.width) || !['service', 'bookmark'].includes(group.variant) ||
+                !Number.isInteger(group.columns) || group.columns < 1 || group.columns > 4 || typeof group.collapsed !== 'boolean') {
+                return fail('layout 分组必须有唯一 ID、有效宽度、卡片类型、1 至 4 列及折叠状态');
+            }
+            layoutIds.add(group.id);
         }
         if (!Number.isInteger(value.category_limit) || value.category_limit < 1 || value.category_limit > 12) return fail('category_limit 必须为 1 至 12 的整数');
         for (const key of ['show_recent', 'show_favorites', 'show_health', 'show_read_later']) {

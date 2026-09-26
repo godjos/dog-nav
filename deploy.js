@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * DogNav Cloudflare 可信发布脚本（根目录，唯一实现）
+ * Mirza Cloudflare 可信发布脚本（根目录，唯一实现）
  *
  * cloudflare/deploy.js 只是转发到本脚本的兼容入口。
  *
@@ -218,7 +218,7 @@ function updateTomlDbId(tomlPath, dbId) {
 
 // ─── 主流程 ──────────────────────────────────────────────────────────────────
 async function main() {
-    console.log('\n🐕 DogNav Cloudflare 可信发布\n');
+    console.log('\n🐕 Mirza Cloudflare 可信发布\n');
 
     // ─── Step 1: Install deps ───
     step('Step 1/8: 安装依赖');

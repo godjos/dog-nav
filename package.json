@@ -1,7 +1,7 @@
 {
   "name": "dognav",
   "version": "3.2.0",
-  "description": "DogNav - 精选网址导航",
+  "description": "Mirza - 个人导航工作台（参考 DogNav 与 Homepage）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

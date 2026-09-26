@@ -1,6 +1,6 @@
-# DogNav API 契约（双端唯一事实来源）
+# Mirza API 契约（双端唯一事实来源）
 
-本文档描述 DogNav 两个后端的 HTTP API 契约：
+本文档描述 Mirza（参考 DogNav 改版）两个后端的 HTTP API 契约：
 
 - **Express 后端**：`server.js`（sql.js + 本地 SQLite 文件，行号记作 `E:行号`）
 - **Cloudflare Worker 后端**：`cloudflare/src/index.js`（Hono + D1，行号记作 `W:行号`）
@@ -327,7 +327,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 
 ## 11. Settings
 
-公开白名单键（两端一致，恰好 11 个）：`site_name, site_description, site_icon, site_url, footer_text, footer_blog_url, footer_github_url, theme_primary_color, theme_secondary_color, submission_enabled, home_config`（`PUBLIC_SETTING_KEYS`）。`auto_nofollow`、`weather_enabled`、`weather_api_key` 均已随天气/热榜功能下线而从白名单与播种中移除。`home_config` 为首页配置 JSON 字符串（schema 见 `public/js/home-config.js`：`category_ids/category_limit/pinned_ids/show_recent/show_favorites/show_health/show_read_later/default_engine/engines`，前后台共享校验）；`site_url` 为站点根地址（http/https  origin，用于 canonical/og:url）。
+公开白名单键（两端一致，恰好 11 个）：`site_name, site_description, site_icon, site_url, footer_text, footer_blog_url, footer_github_url, theme_primary_color, theme_secondary_color, submission_enabled, home_config`（`PUBLIC_SETTING_KEYS`）。`auto_nofollow`、`weather_enabled`、`weather_api_key` 均已随天气/热榜功能下线而从白名单与播种中移除。`home_config` 为首页配置 JSON 字符串（schema 见 `public/js/home-config.js`：`category_ids/category_limit/pinned_ids/layout/show_recent/show_favorites/show_health/show_read_later/default_engine/engines`，前后台共享校验；`layout` 为分组排布数组，条目 `{id,width,variant,columns,collapsed}`，上限 101 组，详见文末「Dashboard widgets」一节）；`site_url` 为站点根地址（http/https  origin，用于 canonical/og:url）。
 
 可写白名单键（两端一致，同样 11 个，`WRITABLE_SETTING_KEYS`）：与公开白名单相同。`submission_enabled` 为布尔键，接受 `true/false` 布尔或字符串，统一归一化为字符串 `'true'/'false'`。所有写接口在写入前对整个 body 做值校验（共享 `public/js/settings-schema.js`：类型/长度/URL 协议/颜色格式/site_url 归一化/home_config JSON），任一字段非法整体拒绝并返回 `400 {"error":<原因>,"field":<字段名>}`（两端一致）。
 
@@ -436,7 +436,7 @@ PUT 副作用：`status='resolved' && remove_site` 时将关联站点置为 `sta
 | 成功 | `200 {"results":[{"id","url","status","latency","time","statusCode"?,"error"?,"consecutive_failures"},...]}`；`status ∈ online/slow/offline`（HTTP≥400 → offline；全链路延迟>3000ms → slow）；`time` 为 `zh-CN` 本地化时间串；`latency` 失败时为 `'-'` |
 | 错误 | `400 {"error":"Too many site IDs"}`（>50）；空/缺/旧格式请求体不报错，返回 `200 {"results":[]}` |
 | 私网拦截 | 主机为私网/保留地址时拒绝探测，返回 `offline + error:"Blocked private host"`（每个重定向跳都重查）。Express 做 DNS 解析 + 地址段判断（解析出的 IP 也拦截）；Worker 无法 DNS，只做主机名黑名单 + IP 字面量判断（见 D16） |
-| 探测参数 | 并发 5、单请求 8s 超时、手动跟随重定向 ≤3 跳、UA `DogNav-HealthCheck/1.0` |
+| 探测参数 | 并发 5、单请求 8s 超时、手动跟随重定向 ≤3 跳、UA `Mirza-HealthCheck/1.0` |
 | 写库副作用 | online/slow → `last_status=<status>, last_check_at=now, consecutive_failures=0`；offline → `consecutive_failures+1` 且 `last_check_at=now`，**仅当连续失败 ≥3 才把 `last_status` 置为 `'offline'`**（之前保留原值）。迁移列：`sites.consecutive_failures INTEGER DEFAULT 0` |
 
 ---
@@ -570,3 +570,27 @@ CONTRACT_TARGET=both npm run test:contract       # 两端各跑一遍同一用�
 ---
 
 > 维护说明：修改任一端 API 行为时，必须先更新本文档，并同步另一端与契约测试。行号基于 2026-08-05 的代码版本（`server.js` 2329 行、`cloudflare/src/index.js` 1662 行；代码有并行改动，行号可能继续漂移）。本次修订（2026-09-19）：① §11 白名单 10→11 键（新增 `home_config`/`site_url`，随天气/热榜下线移除 `weather_enabled`/`weather_api_key`），补充共享值校验 `400 {error,field}` 行为；② §12/§12a 标记天气与热榜功能已下线（端点、设置键、`hot_cache` 表、实现文件与测试均已删除），仅作历史留档；③ §15 导出新增 `icons` 字段（Express 打包图标文件，Worker 恒 `{}`）、导入恢复图标文件并返回 `iconsRestored`（新增 D23），书签导入改为前端共享解析器（`bookmark-parser.js`，支持 Chrome JSON 与 Netscape HTML）先解析预览再提交规范树，服务端契约不变；④ 契约测试说明同步（11 键、去除 weather/hot 用例描述）。本次修订（2026-09-15）：新增 `POST /api/admin/repair-icons`（§17，站点管理页批量图标修复；D9 扩展）；修正 §15 书签导入描述——缺失图标留空 + 后台抓取，不再「先填 Google favicon URL」；§17 抓取实现行号重校（Worker `/api/fetch-icon` 抽取为 `fetchPageHtml`/`parsePageMeta` 并与书签导入回填、`repair-icons` 复用）。本次修订（2026-08-05）：① 重写 §15 Import/Export——两端导出字段已一致（含 `pages/site_tags/clickStats/schemaVersion:2`，`settings` 只导出公开白名单键），导入增加 `validateBackup` 400 校验层、成功返回 `{"message":"Import completed",counts,skippedSettings}`、`settings` 只导入白名单键并计 `skippedSettings`，D10/D11 标记已消除；② 补录 `GET /api/admin/pages`、`PUT/DELETE /api/tags/:id`、`POST /api/users/:id/reset-password`；③ `POST /api/sites` 的「id 恒 0」quirk 已修复（返回真实 id，D1 更新；测试中的旧 CONTRACT-PIN 待同步）；④ `/api/fetch-icon` 两端均收紧为 requireAuth + SSRF 防护（S2 已修复，§17 与 D8 重写）；⑤ Express 全路由 500 统一为 `{"error":"Internal server error"}`（D20 更新）；⑥ Express 点击统计加 IP 限流 60/h（新增 D22）。本次已校正 §2/§4/§5/§13/§15/§17 及差异清单、安全缺口中触及条目的行号；其余章节的行号仍沿用更早的布局，存在系统性偏差（例如 §1 Auth 的行号），待后续统一重校。阶段 4 变更（两端一致，本文档与用例表已同步）：① `POST /api/health-check` 改 `{siteIds:[]}` 契约（空/缺/旧格式 no-op、>50 返回 400、私网/保留地址拦截、并发 5、8s 超时、重定向 ≤3、`consecutive_failures` 计数且 ≥3 才置 `last_status='offline'`，迁移列 `sites.consecutive_failures`）；② `POST /api/submissions` 加蜜罐 `website`、IP 限流 5/h、字段校验、`normalized_url` 去重（409）、返回 `trackingToken`，新增公开 `GET /api/submissions/status/:token`（迁移列 `submissions.{tracking_token,review_note,normalized_url}`）；③ `PUT /api/submissions/:id` 接受 `review_note/name/description/icon/category`，approved 重校验 URL 与 category（不再默认 `'tools'`）；④ `POST /api/reports` 加 reason 枚举、`detail`、IP 限流 10/h、同站同 IP 24h 去重（迁移列 `reports.{detail,reporter_ip}`）；⑤ `GET /api/stats/overview` 追加 `pending_reports/pending_submissions`。
+
+## Dashboard widgets (Express / Cloudflare Workers)
+
+Both runtimes create `dashboard_widgets` idempotently on startup; `cloudflare/schema.sql` also contains the table for manual D1 initialization. A widget has `id`, nullable `site_id` (`null` means the header), `type`, `visibility`, `enabled`, `sort_order`, and `config_json` in storage. A non-null `site_id` must refer to an existing site.
+
+| Route | Auth | Response |
+| --- | --- | --- |
+| `GET /api/widgets` | Public | Array of **enabled public** metadata only: `{id,site_id,type,visibility,enabled,sort_order}`. Never includes `config`, `config_json`, or private rows. |
+| `GET /api/admin/widgets` | Bearer admin | Array of all widgets with `{id,site_id,type,visibility,enabled,sort_order,config}`. |
+| `POST /api/admin/widgets` | Bearer admin | Full request body below; `201` with created admin widget. |
+| `PUT /api/admin/widgets/:id` | Bearer admin | Full replacement body below; `200` with updated admin widget. |
+| `DELETE /api/admin/widgets/:id` | Bearer admin | `200 {"success":true}`. |
+| `GET /api/widgets/:id/data` | Public for enabled public widgets; Bearer admin for enabled private widgets | `{id,state,fields:[{label,value,unit?}],updated_at}`. Disabled/missing widget: `404`. Private without token: `401`; editor: `403`. |
+
+POST and PUT require `{site_id:null|integer,type,visibility,enabled,sort_order,config}`. `type` is `github`, `uptimekuma`, `custom_json`, or `weather`; `visibility` is `public` or `private`; `enabled` is Boolean; `sort_order` is an integer from 0 to 100000. Invalid values return `400 {"error":...}`; missing widget IDs return `404`. The four `config` shapes are:
+
+- `github`: `{owner,repo}` for a **public** repository. Uses GitHub's unauthenticated [Get a repository](https://docs.github.com/en/rest/repos/repos#get-a-repository) API; fields are Stars, Forks, Open issues.
+- `uptimekuma`: `{url,slug}` where `url` is the HTTPS origin of a published status page. Uses Uptime Kuma's [public status page heartbeat API](https://github.com/louislam/uptime-kuma/wiki/Internal-API); fields are Up and Total, with `state:"degraded"` when a latest heartbeat is not up. This upstream endpoint is an internal API and may change.
+- `custom_json`: `{url,mappings:[{label,path,unit?},...]}` with 1–4 mappings. A `path` is a dotted object path such as `stats.users` or `items.0.count`; values must be JSON strings, numbers, or Booleans. The proxy sends no authentication headers.
+- `weather`: `{latitude,longitude}` in valid geographic ranges. Uses [Open-Meteo current weather](https://open-meteo.com/en/docs); fields are Temperature (°C), Humidity (%), Wind (km/h).
+
+Upstream URLs must be HTTPS public hostnames on port 443. IP literals, local hostnames, URL credentials, and credential-like query parameter names are rejected; redirects are not followed. Fetches time out after 5 seconds and JSON is capped at 256 KiB. Express also checks DNS against private addresses before fetching. Successful normalized data is cached per server process / Worker isolate for five minutes. A refresh failure returns cached fields with `state:"stale"` and their original `updated_at`; without cached data it returns `state:"error",fields:[],updated_at:null`. The server does not invent fallback metrics. Data responses use `Cache-Control: no-store` because private data shares the endpoint path.
+
+`GET /api/settings` continues to expose the public `home_config` key. Its layout entries use `{id,width,variant,columns,collapsed}` and the shared schema limits the layout to 101 entries; widget source configs remain separate in the admin-only widget API.

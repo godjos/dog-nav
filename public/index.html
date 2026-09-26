@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DogNav - 精选网址导航 | 发现互联网的无限精彩</title>
-    <meta name="description" content="DogNav 精选网址导航，收录146+优质网站，涵盖影视、动漫、软件、工具、资讯、社区、AI、开发、设计等10大分类，让发现好网站变得简单。">
+    <title>Mirza - 个人导航工作台 | 发现互联网的无限精彩</title>
+    <meta name="description" content="Mirza 个人导航工作台，收录146+优质网站，涵盖影视、动漫、软件、工具、资讯、社区、AI、开发、设计等10大分类，让发现好网站变得简单。">
     <meta name="keywords" content="网址导航,导航网站,精选导航,影视网站,动漫网站,AI工具,开发工具,设计素材,软件下载,在线工具">
     <meta name="author" content="CangDog">
     <meta name="robots" content="index, follow">
@@ -12,12 +12,12 @@
     <link rel="icon" href="/ico.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "WebSite",
-        "name": "DogNav",
+        "name": "Mirza",
         "url": "https://nav.cangdog.com/",
         "description": "精选网址导航，收录146+优质网站，涵盖影视、动漫、软件、工具、资讯、社区、AI、开发、设计等10大分类。",
         "potentialAction": {
@@ -33,18 +33,19 @@
 
 <div class="loader" id="loader">
     <div class="loader-spinner"></div>
-    <div class="loader-label">DogNav</div>
+    <div class="loader-label">Mirza</div>
 </div>
 
-<span class="top-clock" id="clock" aria-label="当前日期时间"></span>
+<header class="home-topbar">
+    <a class="home-brand" href="/" aria-label="Mirza 首页">Mirza</a>
+    <span class="top-desc" id="siteDescription" hidden></span>
+    <span class="top-clock" id="clock" aria-label="当前日期时间"></span>
+    <div class="header-widgets" id="headerWidgets" aria-live="polite"></div>
+</header>
 
-<!-- ═══ 单页首页：搜索 → 常用 Dock → 轻量状态 → 筛选栏 → 全部分类站点 ═══ -->
+<!-- ═══ 单页首页：紧凑搜索与状态 → 常用服务组 → 完整分类组 ═══ -->
 <main class="home" id="homeView">
     <div id="homeLoadState" role="status" aria-live="polite" hidden></div>
-    <section class="hero">
-        <h1 class="greet" id="greet">晚上好</h1>
-        <p class="greet-sub" id="siteDescription">专注当下，探索更大的可能</p>
-    </section>
 
     <header class="search-sec">
         <div class="search-wrap">
@@ -61,14 +62,6 @@
         </div>
     </header>
     <p class="search-provider">外部搜索：<span id="engineLabel">百度</span> · 点击放大镜切换</p>
-
-    <section class="dock-sec" aria-label="常用应用">
-        <div class="dock-edit-bar"><button type="button" class="note-btn" id="editDock" aria-pressed="false">编辑常用</button>
-            <span id="dockEditActions" hidden><button type="button" class="note-btn" id="addDock">添加站点</button><button type="button" class="note-btn" id="resetDock">恢复默认</button></span>
-        </div>
-        <div class="dock" id="dockBar"></div>
-        <p class="dock-hint" id="dockHint" hidden>在下方站点列表中，点卡片上的 📌 把常用站点固定到这里</p>
-    </section>
 
     <section class="status-row" id="statusRow" aria-label="工作台状态">
         <div class="st-card" id="stRecent">
@@ -93,8 +86,18 @@
         </div>
     </section>
 
+    <section class="dock-sec site-group" id="pinnedGroup" aria-label="常用站点">
+        <div class="dock-edit-bar"><h2 class="dock-title">常用站点</h2><button type="button" class="note-btn" id="editDock" aria-pressed="false">编辑常用</button>
+            <span id="dockEditActions" hidden><button type="button" class="note-btn" id="addDock">添加站点</button><button type="button" class="note-btn" id="resetDock">恢复默认</button></span>
+        </div>
+        <div class="dock" id="dockBar"></div>
+        <p class="dock-hint" id="dockHint" hidden>在下方站点列表中，点卡片上的 📌 把常用站点固定到这里</p>
+    </section>
+
     <section class="browse" id="browse" aria-label="全部站点">
         <div class="browse-head" id="browseHead">
+            <div class="browse-title-row"><h2>全部站点</h2><button type="button" class="browse-tools-toggle" id="browseToolsToggle" aria-expanded="false" aria-controls="browseTools">筛选与分类 <span aria-hidden="true">⌄</span></button></div>
+            <div id="browseTools" hidden>
             <nav class="filter-nav" id="filterBar" aria-label="内容筛选">
                 <button type="button" class="cat-pill view-pill on" data-view="all" aria-pressed="true">全部</button>
                 <button type="button" class="cat-pill view-pill" data-view="featured" aria-pressed="false">⭐ 精选</button>
@@ -112,6 +115,7 @@
                 </div>
                 <button type="button" class="cat-drawer-btn" id="catDrawerBtn" aria-label="打开分类菜单">☰ 分类</button>
             </nav>
+            </div>
         </div>
         <div class="cards-area" id="cardsArea"></div>
     </section>
@@ -124,7 +128,7 @@
 </nav>
 
 <div class="set-pop" id="setPop" role="menu" hidden>
-    <div class="set-item"><span class="logo-text">DogNav</span></div>
+    <div class="set-item"><span class="logo-text">Mirza</span></div>
     <div class="set-item set-theme-row">
         <span class="set-label">主题</span>
         <div class="set-seg" role="group" aria-label="主题切换">
