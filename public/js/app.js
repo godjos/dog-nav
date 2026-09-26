@@ -235,14 +235,6 @@ function buildFavIcon(s, size = 36) {
     return el;
 }
 
-function bookmarkAbbr(name) {
-    const words = name.trim().split(/\s+/);
-    const letters = words.length > 1
-        ? words.slice(0, 2).map(word => Array.from(word)[0])
-        : Array.from(name).slice(0, 2);
-    return letters.join('').toUpperCase();
-}
-
 function buildCardTags(s) {
     const tags = Array.isArray(s.tags) ? s.tags.filter(t => t && t.name) : [];
     if (!tags.length) return null;
@@ -275,7 +267,7 @@ function buildCardTags(s) {
     return tagRow;
 }
 
-function buildCard(s, variant = 'service') {
+function buildCard(s) {
     const name = s.name;
     const url = sanitizeUrl(s.url);
     // 名称缺失或 URL 非法（非 http/https）时不渲染该卡片
@@ -285,7 +277,7 @@ function buildCard(s, variant = 'service') {
     const id = s.id || '';
 
     const card = document.createElement('div');
-    card.className = `card card-${variant} rv`;
+    card.className = 'card card-service rv';
     card.dataset.id = id;
     const a = document.createElement('a');
     a.href = url;
@@ -300,8 +292,8 @@ function buildCard(s, variant = 'service') {
 
     const row = document.createElement('div');
     row.className = 'card-row';
-    const fav = buildFavIcon(s, variant === 'bookmark' ? 24 : 32);
-    fav.className = variant === 'bookmark' ? 'card-abbr' : 'card-fav';
+    const fav = buildFavIcon(s, 24);
+    fav.className = 'card-fav';
 
     const nameEl = document.createElement('div');
     nameEl.className = 'card-name';
@@ -316,13 +308,6 @@ function buildCard(s, variant = 'service') {
     textCol.append(descEl);
 
     row.append(fav, textCol);
-    if (variant === 'bookmark') {
-        const domain = document.createElement('span');
-        domain.className = 'card-domain';
-        domain.textContent = hostname;
-        domain.title = domain.textContent;
-        row.append(domain);
-    }
     row.append(buildStatusDot(s));
     a.append(row);
     card.append(a);
@@ -568,11 +553,11 @@ function buildNote(text, linkText, linkHref, btnText, btnFn) {
     return note;
 }
 
-function buildCardGrid(items, variant = 'service') {
+function buildCardGrid(items) {
     const grid = document.createElement('div');
-    grid.className = `card-grid card-grid-${variant}`;
+    grid.className = 'card-grid card-grid-service';
     items.forEach(s => {
-        const card = buildCard(s, variant);
+        const card = buildCard(s);
         if (card) grid.appendChild(card);
     });
     return grid;
@@ -606,7 +591,7 @@ function renderDock() {
         a.rel = s.nofollow ? 'noopener nofollow' : 'noopener';
         const hostname = new URL(url).hostname.replace(/^www\./, '');
         a.title = `${s.name} — ${s.description || hostname}`;
-        const ico = buildFavIcon(s, 32);
+        const ico = buildFavIcon(s, 24);
         ico.className = 'dock-ic';
         const name = document.createElement('span');
         name.className = 'dock-name';
@@ -823,12 +808,11 @@ function renderBrowse() {
             const c = C[k] || { i: '📁', l: k };
             const group = document.createElement('section');
             const size = entry.width || (g[k].length >= 8 ? 'full' : g[k].length >= 4 ? 'half' : 'third');
-            const variant = entry.variant || (size === 'third' ? 'bookmark' : 'service');
             const columns = entry.columns || (size === 'full' ? 4 : 1);
             group.className = `site-group site-group-${size}`;
             group.style.setProperty('--group-columns', String(columns));
             const head = buildSecHead(c.i, c.l, k);
-            const grid = buildCardGrid(g[k], variant);
+            const grid = buildCardGrid(g[k]);
             group.append(head, grid);
             applyGroupCollapse(group, entry, head, grid);
             groups.appendChild(group);

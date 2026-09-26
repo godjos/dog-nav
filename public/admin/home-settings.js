@@ -33,12 +33,11 @@
         row.append(title);
         for (const [key, choices] of [
             ['width', [['full', '整行'], ['half', '半行'], ['third', '三分之一行']]],
-            ['variant', [['service', '服务卡'], ['bookmark', '书签行']]],
             ['columns', [[1, '1 列'], [2, '2 列'], [3, '3 列'], [4, '4 列']]],
         ]) {
             const select = document.createElement('select');
             select.className = `home-layout-${key}`;
-            select.setAttribute('aria-label', `${label}：${{ width: '分组宽度', variant: '卡片样式', columns: '组内列数' }[key]}`);
+            select.setAttribute('aria-label', `${label}：${{ width: '分组宽度', columns: '组内列数' }[key]}`);
             choices.forEach(([value, text]) => select.append(option(value, text, group[key] === value)));
             row.append(select);
         }
@@ -127,7 +126,6 @@
             layout: Array.from(byId('home_layout').children, row => ({
                 id: row.dataset.id,
                 width: row.querySelector('.home-layout-width').value,
-                variant: row.querySelector('.home-layout-variant').value,
                 columns: Number(row.querySelector('.home-layout-columns').value),
                 collapsed: row.querySelector('.home-layout-collapse input').checked,
             })),
