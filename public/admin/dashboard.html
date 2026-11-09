@@ -61,6 +61,17 @@
 
         .site-icon-img { width: 18px; height: 18px; vertical-align: middle; margin-right: 6px; border-radius: 3px; object-fit: cover; }
 
+        .health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
+        .health-dot.online { background: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+        .health-dot.offline { background: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2); }
+        .health-dot.unchecked { background: #cbd5e1; }
+
+        .drag-cell { text-align: center; cursor: grab; color: #94a3b8; font-size: 16px; user-select: none; width: 44px; }
+        .drag-cell:hover { color: #667eea; }
+        tr.dragging { opacity: 0.4; background: #e0e7ff !important; }
+        tr.drag-over-top { border-top: 2px solid #667eea !important; }
+        tr.drag-over-bottom { border-bottom: 2px solid #667eea !important; }
+
         .tag-check-list { display: flex; flex-wrap: wrap; gap: 8px; }
         .tag-check-list .tag-empty { color: #999; font-size: 13px; }
         .tag-check { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #ddd; border-radius: 12px; font-size: 13px; cursor: pointer; user-select: none; }
@@ -148,6 +159,12 @@
                 <select class="category-filter" id="categoryFilter">
                     <option value="">全部分类</option>
                 </select>
+                <select class="category-filter" id="statusFilter" title="按连通性健康状态筛选">
+                    <option value="">全部状态</option>
+                    <option value="online">🟢 在线正常</option>
+                    <option value="offline">🔴 离线异常</option>
+                    <option value="unchecked">⚪ 未检测</option>
+                </select>
             </div>
 
             <div class="repair-panel" id="repairPanel" data-role="admin">
@@ -162,6 +179,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th style="width: 44px; text-align: center;" title="按住可上下拖拽排序">排序</th>
                             <th>名称</th>
                             <th>URL</th>
                             <th>描述</th>
@@ -183,7 +201,11 @@
             <form id="siteForm">
                 <input type="hidden" id="siteId">
                 <div class="form-group"><label>网站名称 *</label><input type="text" id="siteName" required></div>
-                <div class="form-group"><label>URL *</label><input type="url" id="siteUrl" required placeholder="https://"></div>
+                <div class="form-group">
+                    <label>URL *</label>
+                    <input type="url" id="siteUrl" required placeholder="https://">
+                    <div id="siteUrlDupNotice" style="display: none; margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12px; line-height: 1.4;"></div>
+                </div>
                 <div class="form-group"><label>描述 <button type="button" class="btn-fetch-icon" id="fetchDescBtn" title="从URL自动获取名称和描述"> 自动获取</button></label><textarea id="siteDesc"></textarea></div>
                 <div class="form-group"><label>图标 (emoji 或 URL) <button type="button" class="btn-fetch-icon" id="fetchIconBtn" title="从URL自动获取图标">🔗 自动获取</button></label><input type="text" id="siteIcon" placeholder="🌐 或 https://..."></div>
                 <div class="form-group"><label>搜索别名（逗号分隔，如：gpt,chatgpt）</label><input type="text" id="siteKeywords" placeholder="留空则不可按别名搜索"></div>

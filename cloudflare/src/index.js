@@ -368,6 +368,22 @@ app.post('/api/sites/batch', requireAuth, async (c) => {
     return c.json({ message: `Batch ${action} completed`, count: ids.length });
 });
 
+app.post('/api/sites/reorder', requireAuth, async (c) => {
+    const { orders } = await c.req.json();
+    if (!orders || !Array.isArray(orders) || orders.length === 0) return c.json({ error: 'No orders provided' }, 400);
+    if (orders.length > 500) return c.json({ error: 'Too many orders (max 500)' }, 400);
+    const valid = orders.every(item => item && Number.isInteger(item.id) && Number.isInteger(item.sort_order));
+    if (!valid) return c.json({ error: 'Invalid orders format: each item must have integer id and sort_order' }, 400);
+    const statements = orders.map(item =>
+        c.env.DB.prepare('UPDATE sites SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ?').bind(item.sort_order, item.id)
+    );
+    if (statements.length > 0) {
+        await c.env.DB.batch(statements);
+    }
+    await logAction(c.env.DB, c.get('userId'), 'reorder_sites', `Reordered ${statements.length} sites`);
+    return c.json({ message: 'Sites reordered', count: statements.length });
+});
+
 // Click tracking
 app.post('/api/sites/:id/click', async (c) => {
     const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';

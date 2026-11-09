@@ -43,6 +43,54 @@
 
     let allCategories = [];
     let allTags = [];
+    let existingSites = [];
+
+    function normalizeUrl(raw) {
+        if (!raw) return '';
+        try {
+            const u = new URL(raw.trim());
+            let path = u.pathname.replace(/\/+$/, '') || '/';
+            return (u.protocol + '//' + u.hostname + (u.port ? ':' + u.port : '') + path + u.search).toLowerCase();
+        } catch (e) {
+            return raw.trim().toLowerCase().replace(/\/+$/, '');
+        }
+    }
+
+    function extractHostname(raw) {
+        try {
+            return new URL(raw.trim()).hostname.toLowerCase().replace(/^www\./, '');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function checkDuplicateUrl(rawUrl) {
+        const notice = document.getElementById('urlDupNotice');
+        if (!notice) return;
+        if (!rawUrl || !/^https?:\/\//i.test(rawUrl.trim())) {
+            notice.style.display = 'none';
+            return;
+        }
+        const norm = normalizeUrl(rawUrl);
+        const host = extractHostname(rawUrl);
+
+        const exact = existingSites.find(s => normalizeUrl(s.url) === norm);
+        if (exact) {
+            const catName = (allCategories.find(c => c.id === exact.category)?.name) || exact.category;
+            notice.style.cssText = 'display: block; margin-top: 6px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: #fef3c7; border: 1px solid #fde68a; color: #92400e;';
+            notice.innerHTML = `⚠️ <b>该网址已存在！</b> 站点名称：【${typeof escapeHtml === 'function' ? escapeHtml(exact.name) : exact.name}】（分类：${typeof escapeHtml === 'function' ? escapeHtml(catName) : catName}）`;
+            return;
+        }
+
+        const sameHost = existingSites.find(s => extractHostname(s.url) === host);
+        if (sameHost) {
+            notice.style.cssText = 'display: block; margin-top: 6px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;';
+            notice.innerHTML = `ℹ️ <b>同域名已有收录</b>：【${typeof escapeHtml === 'function' ? escapeHtml(sameHost.name) : sameHost.name}】（${typeof escapeHtml === 'function' ? escapeHtml(sameHost.url) : sameHost.url}）`;
+            return;
+        }
+
+        notice.style.display = 'none';
+    }
 
     // ── Token 管理 ──
     function getToken() {
@@ -170,9 +218,10 @@
     // ── 标签与分类数据加载 ──
     async function loadMeta() {
         try {
-            const [catRes, tagRes] = await Promise.all([
+            const [catRes, tagRes, sitesRes] = await Promise.all([
                 fetch('/api/categories'),
-                fetch('/api/tags')
+                fetch('/api/tags'),
+                fetch('/api/sites')
             ]);
 
             if (catRes.ok) {
@@ -184,8 +233,15 @@
                 allTags = await tagRes.json();
                 renderTags();
             }
+
+            if (sitesRes.ok) {
+                existingSites = await sitesRes.json();
+                if (inputUrl.value.trim()) {
+                    checkDuplicateUrl(inputUrl.value.trim());
+                }
+            }
         } catch (e) {
-            console.error('Failed to load categories/tags', e);
+            console.error('Failed to load categories/tags/sites', e);
         }
     }
 
@@ -438,7 +494,12 @@
         fetchPageInfo(inputUrl.value.trim(), true, true);
     });
 
+    inputUrl.addEventListener('input', () => {
+        checkDuplicateUrl(inputUrl.value);
+    });
+
     inputUrl.addEventListener('blur', () => {
+        checkDuplicateUrl(inputUrl.value);
         if (!inputIcon.value.trim()) {
             fetchPageInfo(inputUrl.value.trim(), !inputName.value.trim(), !inputDesc.value.trim());
         }

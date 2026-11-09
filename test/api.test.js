@@ -284,6 +284,55 @@ test('batch: update with empty fields returns 400 (no "SET  WHERE" crash)', asyn
     }
 });
 
+test('sites: reorder updates sort_order in batch and validates input', async () => {
+    const unauth = await api(ctx.baseUrl, 'POST', '/api/sites/reorder', {
+        body: { orders: [{ id: 1, sort_order: 10 }] }
+    });
+    assert.equal(unauth.status, 401);
+
+    const empty = await api(ctx.baseUrl, 'POST', '/api/sites/reorder', {
+        token: adminToken,
+        body: { orders: [] }
+    });
+    assert.equal(empty.status, 400);
+
+    const invalid = await api(ctx.baseUrl, 'POST', '/api/sites/reorder', {
+        token: adminToken,
+        body: { orders: [{ id: 'not-int', sort_order: 'x' }] }
+    });
+    assert.equal(invalid.status, 400);
+
+    const s1 = await api(ctx.baseUrl, 'POST', '/api/sites', {
+        token: adminToken,
+        body: { name: 'Reorder 1', url: 'https://reorder1.example', category: 'tools' }
+    });
+    const s2 = await api(ctx.baseUrl, 'POST', '/api/sites', {
+        token: adminToken,
+        body: { name: 'Reorder 2', url: 'https://reorder2.example', category: 'tools' }
+    });
+
+    const reordered = await api(ctx.baseUrl, 'POST', '/api/sites/reorder', {
+        token: adminToken,
+        body: {
+            orders: [
+                { id: s1.body.id, sort_order: 99 },
+                { id: s2.body.id, sort_order: 100 }
+            ]
+        }
+    });
+    assert.equal(reordered.status, 200);
+    assert.equal(reordered.body.count, 2);
+
+    const list = await api(ctx.baseUrl, 'GET', '/api/sites');
+    const item1 = list.body.find(s => s.id === s1.body.id);
+    const item2 = list.body.find(s => s.id === s2.body.id);
+    assert.equal(item1.sort_order, 99);
+    assert.equal(item2.sort_order, 100);
+
+    await api(ctx.baseUrl, 'DELETE', `/api/sites/${s1.body.id}`, { token: adminToken });
+    await api(ctx.baseUrl, 'DELETE', `/api/sites/${s2.body.id}`, { token: adminToken });
+});
+
 // ── Fetch icon (auth + SSRF guard) ───────────────────────────────────────
 
 test('fetch-icon: without auth returns 401', async () => {

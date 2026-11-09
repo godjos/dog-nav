@@ -17,6 +17,90 @@
             updateCategoryFilter();
         }
 
+        let draggedRow = null;
+
+        function initTableDragAndDrop() {
+            const tbody = document.getElementById('sitesTableBody');
+            if (!tbody) return;
+
+            tbody.querySelectorAll('tr[draggable]').forEach(row => {
+                row.addEventListener('dragstart', (e) => {
+                    draggedRow = row;
+                    row.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', row.dataset.id);
+                });
+
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('dragging');
+                    tbody.querySelectorAll('tr').forEach(r => {
+                        r.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
+                    draggedRow = null;
+                });
+
+                row.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (!draggedRow || draggedRow === row) return;
+
+                    const rect = row.getBoundingClientRect();
+                    const midY = rect.top + rect.height / 2;
+                    if (e.clientY < midY) {
+                        row.classList.add('drag-over-top');
+                        row.classList.remove('drag-over-bottom');
+                    } else {
+                        row.classList.add('drag-over-bottom');
+                        row.classList.remove('drag-over-top');
+                    }
+                });
+
+                row.addEventListener('dragleave', () => {
+                    row.classList.remove('drag-over-top', 'drag-over-bottom');
+                });
+
+                row.addEventListener('drop', async (e) => {
+                    e.preventDefault();
+                    if (!draggedRow || draggedRow === row) return;
+
+                    const isAbove = row.classList.contains('drag-over-top');
+                    row.classList.remove('drag-over-top', 'drag-over-bottom');
+
+                    if (isAbove) {
+                        tbody.insertBefore(draggedRow, row);
+                    } else {
+                        tbody.insertBefore(draggedRow, row.nextSibling);
+                    }
+
+                    const rows = Array.from(tbody.querySelectorAll('tr[data-id]'));
+                    const orders = rows.map((r, idx) => ({
+                        id: Number(r.dataset.id),
+                        sort_order: idx + 1
+                    }));
+
+                    orders.forEach(o => {
+                        const found = allSites.find(s => Number(s.id) === o.id);
+                        if (found) found.sort_order = o.sort_order;
+                    });
+
+                    try {
+                        const res = await fetch('/api/sites/reorder', {
+                            method: 'POST',
+                            headers: authHeaders(),
+                            body: JSON.stringify({ orders })
+                        });
+                        if (res.ok) {
+                            showToast('已更新排序');
+                        } else {
+                            showToast('排序保存失败', 'error');
+                        }
+                    } catch (err) {
+                        showToast('网络错误，排序未保存', 'error');
+                    }
+                });
+            });
+        }
+
         function renderSites(sites) {
             const tbody = document.getElementById('sitesTableBody');
             const empty = document.getElementById('emptyState');
@@ -36,9 +120,20 @@
                 const urlCell = safeUrl
                     ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" class="site-url">${escapeHtml(s.url)}</a>`
                     : escapeHtml(s.url || '-');
+
+                let healthDot = '';
+                if (s.last_status === 'online') {
+                    healthDot = `<span class="health-dot online" title="健康状态：正常在线 (检查时间: ${escapeHtml(s.last_check_at || '最近')})"></span>`;
+                } else if (s.last_status === 'offline') {
+                    healthDot = `<span class="health-dot offline" title="健康状态：离线不可达 (失败次数: ${s.consecutive_failures || 1})"></span>`;
+                } else {
+                    healthDot = `<span class="health-dot unchecked" title="健康状态：尚未进行检测"></span>`;
+                }
+
                 return `
-                <tr>
-                    <td><div class="site-name">${iconHtml}${escapeHtml(s.name)}</div></td>
+                <tr draggable="true" data-id="${sid}">
+                    <td class="drag-cell" title="按住上下拖拽可调整排序">⋮⋮</td>
+                    <td><div class="site-name">${healthDot}${iconHtml}${escapeHtml(s.name)}</div></td>
                     <td>${urlCell}</td>
                     <td>${escapeHtml(s.description || '-')}</td>
                     <td><span class="site-category">${escapeHtml(CATEGORIES[s.category] || s.category)}</span></td>
@@ -52,6 +147,7 @@
             tbody.querySelectorAll('.site-icon-img').forEach(img => {
                 img.addEventListener('error', () => { img.src = img.dataset.fallback; }, { once: true });
             });
+            initTableDragAndDrop();
         }
 
         function updateStats() {
@@ -66,6 +162,11 @@
         }
 
         function openModal(site = null) {
+            const dupNotice = document.getElementById('siteUrlDupNotice');
+            if (dupNotice) {
+                dupNotice.style.display = 'none';
+                dupNotice.innerHTML = '';
+            }
             document.getElementById('modalTitle').textContent = site ? '编辑网站' : '添加网站';
             document.getElementById('siteId').value = site ? site.id : '';
             document.getElementById('siteName').value = site ? site.name : '';
@@ -366,15 +467,80 @@
             }
         }
 
+        function normalizeUrl(raw) {
+            if (!raw) return '';
+            try {
+                const u = new URL(raw.trim());
+                let path = u.pathname.replace(/\/+$/, '') || '/';
+                return (u.protocol + '//' + u.hostname + (u.port ? ':' + u.port : '') + path + u.search).toLowerCase();
+            } catch (e) {
+                return raw.trim().toLowerCase().replace(/\/+$/, '');
+            }
+        }
+
+        function extractHostname(raw) {
+            try {
+                return new URL(raw.trim()).hostname.toLowerCase().replace(/^www\./, '');
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function checkSiteUrlDuplicate() {
+            const notice = document.getElementById('siteUrlDupNotice');
+            if (!notice) return;
+            const currentId = Number(document.getElementById('siteId').value) || 0;
+            const rawUrl = document.getElementById('siteUrl').value;
+            if (!rawUrl || !/^https?:\/\//i.test(rawUrl.trim())) {
+                notice.style.display = 'none';
+                return;
+            }
+            const norm = normalizeUrl(rawUrl);
+            const host = extractHostname(rawUrl);
+
+            const exact = allSites.find(s => Number(s.id) !== currentId && normalizeUrl(s.url) === norm);
+            if (exact) {
+                const catName = CATEGORIES[exact.category] || exact.category;
+                notice.style.cssText = 'display: block; margin-top: 6px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: #fef3c7; border: 1px solid #fde68a; color: #92400e;';
+                notice.innerHTML = `⚠️ <b>该网址已存在！</b> 站点名称：【${escapeHtml(exact.name)}】（分类：${escapeHtml(catName)}）<a href="#" style="margin-left: 8px; color: #2563eb; text-decoration: underline;" id="btnJumpToExact">编辑已有站点</a>`;
+                const jumpBtn = notice.querySelector('#btnJumpToExact');
+                if (jumpBtn) {
+                    jumpBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        editSite(exact.id);
+                    });
+                }
+                return;
+            }
+
+            const sameHost = allSites.find(s => Number(s.id) !== currentId && extractHostname(s.url) === host);
+            if (sameHost) {
+                notice.style.cssText = 'display: block; margin-top: 6px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;';
+                notice.innerHTML = `ℹ️ <b>同域名已有收录</b>：【${escapeHtml(sameHost.name)}】（${escapeHtml(sameHost.url)}）`;
+                return;
+            }
+
+            notice.style.display = 'none';
+        }
+
+        document.getElementById('siteUrl').addEventListener('input', checkSiteUrlDuplicate);
+        document.getElementById('siteUrl').addEventListener('blur', checkSiteUrlDuplicate);
+
         document.getElementById('searchBox').addEventListener('input', filterSites);
         document.getElementById('categoryFilter').addEventListener('change', filterSites);
+        const statusFilterEl = document.getElementById('statusFilter');
+        if (statusFilterEl) statusFilterEl.addEventListener('change', filterSites);
 
         function filterSites() {
             const search = document.getElementById('searchBox').value.toLowerCase();
             const category = document.getElementById('categoryFilter').value;
+            const status = statusFilterEl ? statusFilterEl.value : '';
             let filtered = allSites;
-            if (search) filtered = filtered.filter(s => s.name.toLowerCase().includes(search) || (s.description && s.description.toLowerCase().includes(search)));
+            if (search) filtered = filtered.filter(s => s.name.toLowerCase().includes(search) || (s.description && s.description.toLowerCase().includes(search)) || (s.url && s.url.toLowerCase().includes(search)));
             if (category) filtered = filtered.filter(s => s.category === category);
+            if (status === 'online') filtered = filtered.filter(s => s.last_status === 'online');
+            else if (status === 'offline') filtered = filtered.filter(s => s.last_status === 'offline');
+            else if (status === 'unchecked') filtered = filtered.filter(s => !s.last_status);
             renderSites(filtered);
         }
 

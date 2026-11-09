@@ -678,6 +678,33 @@ app.post('/api/sites/batch', requireAuth, (req, res) => {
     }
 });
 
+app.post('/api/sites/reorder', requireAuth, (req, res) => {
+    try {
+        const { orders } = req.body;
+        if (!orders || !Array.isArray(orders) || orders.length === 0) {
+            return res.status(400).json({ error: 'No orders provided' });
+        }
+        if (orders.length > 500) {
+            return res.status(400).json({ error: 'Too many orders (max 500)' });
+        }
+        const valid = orders.every(item => item && Number.isInteger(item.id) && Number.isInteger(item.sort_order));
+        if (!valid) {
+            return res.status(400).json({ error: 'Invalid orders format: each item must have integer id and sort_order' });
+        }
+        const stmt = db.prepare('UPDATE sites SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ?');
+        for (const item of orders) {
+            stmt.run([item.sort_order, item.id]);
+        }
+        stmt.free();
+        logAction(req.userId, 'reorder_sites', `Reordered ${orders.length} sites`);
+        saveDb();
+        res.json({ message: 'Sites reordered', count: orders.length });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Click tracking (public; throttled per IP to blunt click-inflation abuse)
 const clickLimiter = createHourlyLimiter(60);
 app.post('/api/sites/:id/click', (req, res) => {
