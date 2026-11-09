@@ -157,8 +157,13 @@ async function fetchAsset(c, input) {
 
 // CORS: same-origin by default (no CORS headers sent). Set the CORS_ORIGIN
 // env var (comma-separated) to explicitly allow cross-origin callers.
+// Also permit browser extensions (chrome-extension://, moz-extension://).
 app.use('*', cors({
     origin: (origin, c) => {
+        if (!origin) return origin;
+        if (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')) {
+            return origin;
+        }
         const allow = ((c.env && c.env.CORS_ORIGIN) || '').split(',').map(s => s.trim()).filter(Boolean);
         return allow.includes(origin) ? origin : undefined;
     },
@@ -1803,8 +1808,16 @@ app.post('/api/health-check', requireAuth, async (c) => {
 });
 
 // ═══════════════════════════════════════════
-// ADMIN ROUTING
+// ADMIN & COMPATIBILITY ROUTING
 // ═══════════════════════════════════════════
+
+// Redirect any mistaken /admin/api/* calls to /api/* preserving method and body (307)
+app.all('/admin/api/*', async (c) => {
+    const targetPath = c.req.path.replace(/^\/admin\/api/, '/api');
+    const url = new URL(c.req.url);
+    url.pathname = targetPath;
+    return c.redirect(url.toString(), 307);
+});
 
 app.get('/admin', async (c) => {
     return fetchAsset(c, new URL('/admin/index.html', c.req.url));

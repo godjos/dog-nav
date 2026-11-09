@@ -49,3 +49,26 @@ test('dashboard: includes Chrome extension download button and guide modal', () 
     assert.match(dashboardJs, /id="chromeExtBtn"/ ? /chromeExtBtn/ : /chromeExtBtn/);
     assert.match(dashboardJs, /chromeExtOverlay\.classList\.add\('show'\)/);
 });
+
+test('chrome-extension: cleanServerUrl strips /admin and subpaths safely', () => {
+    const popupJs = fs.readFileSync(path.join(extDir, 'popup.js'), 'utf8');
+    const optionsJs = fs.readFileSync(path.join(extDir, 'options.js'), 'utf8');
+    assert.match(popupJs, /function cleanServerUrl/);
+    assert.match(optionsJs, /function cleanServerUrl/);
+
+    function cleanServerUrl(raw) {
+        if (!raw) return '';
+        let url = String(raw).trim();
+        url = url.replace(/#.*$/, '');
+        url = url.replace(/\/admin(\/.*)?$/i, '');
+        url = url.replace(/\/(index|quick-add)\.html$/i, '');
+        return url.replace(/\/+$/, '');
+    }
+
+    assert.equal(cleanServerUrl('https://homepage.980724.xyz/admin'), 'https://homepage.980724.xyz');
+    assert.equal(cleanServerUrl('https://homepage.980724.xyz/admin/'), 'https://homepage.980724.xyz');
+    assert.equal(cleanServerUrl('https://homepage.980724.xyz/admin/dashboard.html'), 'https://homepage.980724.xyz');
+    assert.equal(cleanServerUrl('https://homepage.980724.xyz/index.html'), 'https://homepage.980724.xyz');
+    assert.equal(cleanServerUrl('http://localhost:3000/admin'), 'http://localhost:3000');
+    assert.equal(cleanServerUrl('http://localhost:3000'), 'http://localhost:3000');
+});

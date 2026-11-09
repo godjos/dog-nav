@@ -89,7 +89,18 @@ app.use((req, res, next) => {
 });
 
 const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
-app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : false }));
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    }
+}));
 // Default JSON body cap is 2mb; the import routes accept full backups and get
 // their own larger parser below (registered before this catch-all).
 const jsonParser = express.json({ limit: '2mb' });
@@ -2592,8 +2603,14 @@ app.post('/api/health-check', requireAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════
-// SERVE ADMIN PAGES
+// SERVE ADMIN PAGES & COMPATIBILITY ROUTING
 // ═══════════════════════════════════════════
+
+// Redirect any mistaken /admin/api/* calls to /api/* preserving method and body (307)
+app.all('/admin/api/*', (req, res) => {
+    const target = req.originalUrl.replace(/^\/admin\/api/, '/api');
+    res.redirect(307, target);
+});
 
 const ADMIN_DIR = path.join(__dirname, 'public', 'admin');
 app.get('/admin', (req, res) => res.sendFile(path.join(ADMIN_DIR, 'index.html')));

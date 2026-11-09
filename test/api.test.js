@@ -909,6 +909,22 @@ test('repair-icons: duplicate ids are deduped to one result per id', async () =>
     assert.equal(del.status, 200);
 });
 
+// ── Compatibility & CORS ──────────────────────────────────────────────────
+
+test('compatibility: /admin/api/* redirects to /api/* with 307 preserving method', async () => {
+    const rawRes = await fetch(`${ctx.baseUrl}/admin/api/settings`, { redirect: 'manual' });
+    assert.equal(rawRes.status, 307);
+    assert.equal(rawRes.headers.get('location'), '/api/settings');
+});
+
+test('cors: chrome-extension and moz-extension origins are allowed', async () => {
+    const res = await fetch(`${ctx.baseUrl}/api/settings`, {
+        headers: { 'Origin': 'chrome-extension://abcdefghijklmnop' }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), 'chrome-extension://abcdefghijklmnop');
+});
+
 // ── Logout ───────────────────────────────────────────────────────────────
 
 test('logout: old token is rejected afterwards', async () => {

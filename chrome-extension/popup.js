@@ -48,6 +48,15 @@
     let existingSites = [];
 
     // ── 辅助工具 ──
+    function cleanServerUrl(raw) {
+        if (!raw) return '';
+        let url = String(raw).trim();
+        url = url.replace(/#.*$/, '');
+        url = url.replace(/\/admin(\/.*)?$/i, '');
+        url = url.replace(/\/(index|quick-add)\.html$/i, '');
+        return url.replace(/\/+$/, '');
+    }
+
     function normalizeUrl(raw) {
         if (!raw) return '';
         try {
@@ -416,14 +425,16 @@
     // ── 登录认证 ──
     async function doLogin() {
         showLoginError('');
-        let server = cfgServerUrl.value.trim().replace(/\/+$/, '');
+        let server = cleanServerUrl(cfgServerUrl.value);
         const username = cfgUsername.value.trim();
         const password = cfgPassword.value;
 
         if (!server || !/^https?:\/\//i.test(server)) {
-            showLoginError('请输入合法的导航站地址（需以 http:// 或 https:// 开头）');
+            showLoginError('请输入合法的导航站主页地址（以 http:// 或 https:// 开头，不带 /admin）');
             return;
         }
+        cfgServerUrl.value = server;
+
         if (!username || !password) {
             showLoginError('请输入管理员账号和密码');
             return;
@@ -439,9 +450,23 @@
                 body: JSON.stringify({ username, password })
             });
 
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                showLoginError(data.error || '登录失败，请检查账号密码');
+            let data = null;
+            try {
+                data = await res.json();
+            } catch {
+                // Non-JSON response (e.g. 404/500 HTML)
+            }
+
+            if (!res.ok) {
+                const errMsg = (data && data.error) ? data.error : `HTTP ${res.status}`;
+                showLoginError(`登录失败 (${errMsg})，请检查账号密码或站点主页地址`);
+                btnLogin.disabled = false;
+                btnLogin.innerHTML = '<span>连接并登录</span>';
+                return;
+            }
+
+            if (!data || !data.token) {
+                showLoginError((data && data.error) || '登录失败，服务器响应格式异常');
                 btnLogin.disabled = false;
                 btnLogin.innerHTML = '<span>连接并登录</span>';
                 return;
@@ -461,7 +486,7 @@
 
             await showAddView();
         } catch (e) {
-            showLoginError('无法连接到服务器，请检查网址是否正确或服务是否运行');
+            showLoginError(`无法连接到服务器 (${e.message || '网络连接失败'})，请检查网址是否正确或服务是否运行`);
             btnLogin.disabled = false;
             btnLogin.innerHTML = '<span>连接并登录</span>';
         }
@@ -471,7 +496,7 @@
     async function init() {
         if (chrome.storage && chrome.storage.local) {
             const stored = await chrome.storage.local.get(['dognav_server_url', 'dognav_token']);
-            if (stored.dognav_server_url) currentServerUrl = stored.dognav_server_url;
+            if (stored.dognav_server_url) currentServerUrl = cleanServerUrl(stored.dognav_server_url);
             if (stored.dognav_token) currentToken = stored.dognav_token;
         }
 

@@ -18,21 +18,31 @@
         }, 3500);
     }
 
+    function cleanServerUrl(raw) {
+        if (!raw) return '';
+        let url = String(raw).trim();
+        url = url.replace(/#.*$/, '');
+        url = url.replace(/\/admin(\/.*)?$/i, '');
+        url = url.replace(/\/(index|quick-add)\.html$/i, '');
+        return url.replace(/\/+$/, '');
+    }
+
     async function loadSettings() {
         if (!chrome.storage || !chrome.storage.local) return;
         const stored = await chrome.storage.local.get(['dognav_server_url', 'dognav_token']);
-        serverUrlInput.value = stored.dognav_server_url || 'http://localhost:3000';
+        serverUrlInput.value = cleanServerUrl(stored.dognav_server_url) || 'http://localhost:3000';
         authTokenInput.value = stored.dognav_token || '';
     }
 
     async function saveSettings() {
-        let url = serverUrlInput.value.trim().replace(/\/+$/, '');
+        let url = cleanServerUrl(serverUrlInput.value);
         const token = authTokenInput.value.trim();
 
         if (!url || !/^https?:\/\//i.test(url)) {
-            showAlert('请输入合法的网址（以 http:// 或 https:// 开头）', 'error');
+            showAlert('请输入合法的网址（以 http:// 或 https:// 开头，不带 /admin）', 'error');
             return;
         }
+        serverUrlInput.value = url;
 
         if (chrome.storage && chrome.storage.local) {
             await chrome.storage.local.set({
@@ -44,13 +54,14 @@
     }
 
     async function testConnection() {
-        let url = serverUrlInput.value.trim().replace(/\/+$/, '');
+        let url = cleanServerUrl(serverUrlInput.value);
         const token = authTokenInput.value.trim();
 
         if (!url) {
-            showAlert('请先输入导航站地址', 'error');
+            showAlert('请先输入导航站主页地址（不带 /admin）', 'error');
             return;
         }
+        serverUrlInput.value = url;
 
         try {
             const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
@@ -58,10 +69,10 @@
             if (res.ok) {
                 showAlert('✅ 连接成功！服务器响应正常。', 'success');
             } else {
-                showAlert(`⚠️ 服务器响应异常：HTTP ${res.status}`, 'error');
+                showAlert(`⚠️ 服务器响应异常：HTTP ${res.status}（请确认输入的是主页根地址）`, 'error');
             }
         } catch (e) {
-            showAlert('❌ 无法连接到服务器，请检查地址是否正确或服务是否启动', 'error');
+            showAlert(`❌ 无法连接到服务器 (${e.message || '网络连接失败'})，请检查地址是否正确或服务是否启动`, 'error');
         }
     }
 
