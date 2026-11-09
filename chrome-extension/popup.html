@@ -68,11 +68,22 @@
                     <input type="text" id="siteName" placeholder="网站名称" required>
                 </div>
                 <div class="form-group" style="flex: 1;">
-                    <label for="siteCategory">分类 *</label>
+                    <div class="label-with-action">
+                        <label for="siteCategory">分类 *</label>
+                        <button type="button" class="btn-text-action" id="btnToggleNewCat" title="快速新建分类">+ 新建</button>
+                    </div>
                     <select id="siteCategory" required>
                         <option value="">加载中...</option>
                     </select>
                 </div>
+            </div>
+
+            <!-- 内联新建分类面板 -->
+            <div id="newCatRow" class="inline-create-box" style="display: none;">
+                <input type="text" id="newCatIcon" class="inline-input-icon" value="📁" maxlength="4" title="图标 (Emoji)">
+                <input type="text" id="newCatName" class="inline-input-name" placeholder="新分类名称">
+                <button type="button" class="btn-sub btn-sm" id="btnConfirmNewCat">添加</button>
+                <button type="button" class="btn-cancel btn-sm" id="btnCancelNewCat">取消</button>
             </div>
 
             <div class="form-group">
@@ -95,7 +106,16 @@
             </div>
 
             <div class="form-group">
-                <label>选择标签 (可选)</label>
+                <div class="label-with-action">
+                    <label>选择标签 (可选)</label>
+                    <button type="button" class="btn-text-action" id="btnToggleNewTag" title="快速新建标签">+ 新建标签</button>
+                </div>
+                <!-- 内联新建标签面板 -->
+                <div id="newTagRow" class="inline-create-box" style="display: none; margin-bottom: 6px;">
+                    <input type="text" id="newTagName" class="inline-input-name" placeholder="输入新标签名称">
+                    <button type="button" class="btn-sub btn-sm" id="btnConfirmNewTag">添加</button>
+                    <button type="button" class="btn-cancel btn-sm" id="btnCancelNewTag">取消</button>
+                </div>
                 <div class="tag-chips" id="tagChips">
                     <span class="tag-empty">加载标签中...</span>
                 </div>
@@ -125,7 +145,10 @@
         <!-- 站点管理与搜索删除视图 -->
         <div id="manageView" class="view" style="display: none;">
             <div class="manage-search-bar">
-                <input type="text" id="manageSearchInput" class="manage-search-input" placeholder="🔍 快速搜索站点名称、网址或分类...">
+                <input type="text" id="manageSearchInput" class="manage-search-input" placeholder="🔍 快速搜索站点名称、网址或描述...">
+                <select id="manageCategoryFilter" class="manage-cat-select" title="按分类筛选">
+                    <option value="">全部分类</option>
+                </select>
                 <button type="button" class="btn-sub" id="btnBackFromManage">返回添加</button>
             </div>
             <div class="manage-info-row">
@@ -133,6 +156,9 @@
                 <span class="manage-hint">点击 🗑️ 快速删除，点击 ✏️ 编辑</span>
             </div>
             <div id="manageSiteList" class="manage-site-list"></div>
+            <div id="managePagination" class="manage-pagination" style="display: none;">
+                <button type="button" class="btn-sub btn-sm" id="btnManageLoadMore">加载更多站点</button>
+            </div>
         </div>
 
         <!-- 成功状态视图 -->

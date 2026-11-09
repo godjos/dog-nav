@@ -18,9 +18,10 @@ test('chrome-extension: manifest.json is valid Manifest V3', () => {
     assert.equal(manifest.action.default_popup, 'popup.html');
     assert.equal(manifest.background.service_worker, 'background.js');
     assert.ok(manifest.permissions.includes('activeTab'));
+    assert.ok(manifest.permissions.includes('scripting'));
     assert.ok(manifest.permissions.includes('storage'));
     assert.ok(manifest.permissions.includes('contextMenus'));
-    assert.equal(manifest.commands._execute_action.suggested_key.default, 'Alt+D');
+    assert.equal(manifest.commands._execute_action.suggested_key.default, 'Alt+B');
 });
 
 test('chrome-extension: all essential UI, script, and icon files exist', () => {
@@ -91,4 +92,38 @@ test('chrome-extension: supports delete actions and management search view', () 
 
     assert.match(popupCss, /\.btn-danger/);
     assert.match(popupCss, /\.manage-site-list/);
+});
+
+test('chrome-extension: supports instant DOM extraction, in-popup category/tag creation, dark mode, and badge sync', () => {
+    const popupHtml = fs.readFileSync(path.join(extDir, 'popup.html'), 'utf8');
+    const popupJs = fs.readFileSync(path.join(extDir, 'popup.js'), 'utf8');
+    const popupCss = fs.readFileSync(path.join(extDir, 'popup.css'), 'utf8');
+    const backgroundJs = fs.readFileSync(path.join(extDir, 'background.js'), 'utf8');
+
+    // In-popup category and tag creation
+    assert.match(popupHtml, /id="btnToggleNewCat"/);
+    assert.match(popupHtml, /id="newCatRow"/);
+    assert.match(popupHtml, /id="btnConfirmNewCat"/);
+    assert.match(popupHtml, /id="btnToggleNewTag"/);
+    assert.match(popupHtml, /id="newTagRow"/);
+    assert.match(popupHtml, /id="btnConfirmNewTag"/);
+
+    // Manage category filter & pagination
+    assert.match(popupHtml, /id="manageCategoryFilter"/);
+    assert.match(popupHtml, /id="managePagination"/);
+    assert.match(popupHtml, /id="btnManageLoadMore"/);
+
+    // Active tab instant DOM extraction & tag recall
+    assert.match(popupJs, /async function extractTabMeta/);
+    assert.match(popupJs, /function selectTagsForSite/);
+    assert.match(popupJs, /syncCollectedUrls/);
+    assert.match(popupJs, /saveFormDraft/);
+
+    // Background badge updates
+    assert.match(backgroundJs, /updateTabBadge/);
+    assert.match(backgroundJs, /setBadgeText/);
+    assert.match(backgroundJs, /dognav_collected_urls/);
+
+    // Dark mode
+    assert.match(popupCss, /@media \(prefers-color-scheme: dark\)/);
 });

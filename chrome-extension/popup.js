@@ -4,8 +4,9 @@
 
 (function () {
     const DEFAULT_SERVER_URL = 'http://localhost:3000';
+    const MANAGE_PAGE_STEP = 30;
 
-    // DOM Elements
+    // DOM Elements - Views & Global Nav
     const loginView = document.getElementById('loginView');
     const addView = document.getElementById('addView');
     const manageView = document.getElementById('manageView');
@@ -32,6 +33,20 @@
     const inputFeatured = document.getElementById('siteFeatured');
     const inputSort = document.getElementById('siteSort');
 
+    // Inline Creation Elements
+    const btnToggleNewCat = document.getElementById('btnToggleNewCat');
+    const newCatRow = document.getElementById('newCatRow');
+    const newCatIcon = document.getElementById('newCatIcon');
+    const newCatName = document.getElementById('newCatName');
+    const btnConfirmNewCat = document.getElementById('btnConfirmNewCat');
+    const btnCancelNewCat = document.getElementById('btnCancelNewCat');
+
+    const btnToggleNewTag = document.getElementById('btnToggleNewTag');
+    const newTagRow = document.getElementById('newTagRow');
+    const newTagName = document.getElementById('newTagName');
+    const btnConfirmNewTag = document.getElementById('btnConfirmNewTag');
+    const btnCancelNewTag = document.getElementById('btnCancelNewTag');
+
     const iconBox = document.getElementById('iconBox');
     const iconEmoji = document.getElementById('iconEmoji');
     const iconImg = document.getElementById('iconImg');
@@ -45,8 +60,11 @@
 
     // Manage Elements
     const manageSearchInput = document.getElementById('manageSearchInput');
+    const manageCategoryFilter = document.getElementById('manageCategoryFilter');
     const manageStats = document.getElementById('manageStats');
     const manageSiteList = document.getElementById('manageSiteList');
+    const managePagination = document.getElementById('managePagination');
+    const btnManageLoadMore = document.getElementById('btnManageLoadMore');
     const btnBackFromManage = document.getElementById('btnBackFromManage');
 
     // Success Elements
@@ -56,12 +74,15 @@
     const successDesc = document.getElementById('successDesc');
     const btnSuccessManage = document.getElementById('btnSuccessManage');
 
+    // State
     let currentServerUrl = DEFAULT_SERVER_URL;
     let currentToken = '';
     let allCategories = [];
     let allTags = [];
     let existingSites = [];
     let currentMatchedSite = null;
+    let manageCurrentLimit = MANAGE_PAGE_STEP;
+    let unsavedDraft = null;
 
     // ── 辅助工具 ──
     function cleanServerUrl(raw) {
@@ -139,7 +160,6 @@
             return;
         }
         if (/^(https?:\/\/|\/|data:image\/)/i.test(iconVal)) {
-            // 如果是相对路径，拼上完整的 serverUrl
             const fullSrc = iconVal.startsWith('/') ? (currentServerUrl + iconVal) : iconVal;
             iconImg.src = fullSrc;
             iconImg.style.display = 'inline-block';
@@ -151,6 +171,19 @@
         }
     }
 
+    // ── 标签高亮选中控制 ──
+    function selectTagsForSite(tagList) {
+        tagChips.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+        if (!tagList || !Array.isArray(tagList) || tagList.length === 0) return;
+        const activeIds = new Set(tagList.map(t => (typeof t === 'object' && t !== null ? t.id : Number(t))));
+        tagChips.querySelectorAll('.tag-chip').forEach(c => {
+            const id = Number(c.dataset.id);
+            if (activeIds.has(id)) {
+                c.classList.add('active');
+            }
+        });
+    }
+
     // ── 重复与同域名检查 ──
     function checkUrlDuplicate(rawUrl) {
         if (!urlDupNotice) return;
@@ -160,6 +193,7 @@
 
         if (!rawUrl || !/^https?:\/\//i.test(rawUrl.trim())) {
             urlDupNotice.style.display = 'none';
+            selectTagsForSite([]);
             return;
         }
 
@@ -172,12 +206,16 @@
             const catName = (allCategories.find(c => c.id === exact.category)?.name) || exact.category;
             urlDupNotice.className = 'dup-alert warning';
             urlDupNotice.style.display = 'block';
-            urlDupNotice.innerHTML = `⚠️ <b>该网址已收录！</b> 站点：【${escapeHtml(exact.name)}】（分类：${escapeHtml(catName)}）<br><span style="font-size:11px; color:#b45309;">可直接修改后更新，或点击下方【删除此网址】</span>`;
+            urlDupNotice.innerHTML = `⚠️ <b>该网址已收录！</b> 站点：【${escapeHtml(exact.name)}】（分类：${escapeHtml(catName)}）<br><span style="font-size:11px; opacity:0.85;">可直接修改后更新，或点击下方【删除此网址】</span>`;
             if (btnDeleteCurrent) {
                 btnDeleteCurrent.style.display = 'inline-flex';
                 btnDeleteCurrent.title = `从导航站删除【${exact.name}】`;
             }
             if (btnSaveText) btnSaveText.textContent = '更新此站点';
+            // 回显原站点的已有标签
+            if (exact.tags) {
+                selectTagsForSite(exact.tags);
+            }
             return;
         }
 
@@ -192,7 +230,47 @@
         urlDupNotice.style.display = 'none';
     }
 
-    // ── 抓取网站图标与信息 ──
+    // ── 本地标签页 DOM 即时提取 (0ms 瞬时解析 + 支持局域网与内网网址) ──
+    async function extractTabMeta(tab) {
+        if (!tab || !tab.id || !tab.url || !/^https?:\/\//i.test(tab.url)) return null;
+
+        const meta = {
+            title: tab.title || '',
+            icon: tab.favIconUrl || '',
+            description: ''
+        };
+
+        if (chrome.scripting && chrome.scripting.executeScript) {
+            try {
+                const [res] = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => {
+                        const d = document.querySelector('meta[name="description"]') ||
+                                  document.querySelector('meta[property="og:description"]') ||
+                                  document.querySelector('meta[name="twitter:description"]');
+                        const iconEl = document.querySelector('link[rel="apple-touch-icon"]') ||
+                                       document.querySelector('link[rel="icon"]') ||
+                                       document.querySelector('link[rel="shortcut icon"]');
+                        return {
+                            title: document.title || '',
+                            description: d ? (d.content || '').trim() : '',
+                            icon: iconEl ? (iconEl.href || '') : ''
+                        };
+                    }
+                });
+                if (res && res.result) {
+                    if (res.result.title) meta.title = res.result.title;
+                    if (res.result.description) meta.description = res.result.description;
+                    if (res.result.icon) meta.icon = res.result.icon;
+                }
+            } catch (e) {
+                // 部分特殊或受限页面无法注入，忽略报错
+            }
+        }
+        return meta;
+    }
+
+    // ── 服务端后备抓取 ──
     let abortController = null;
     async function fetchPageInfo(url, fillTitle = false, fillDesc = false) {
         const trimmed = (url || '').trim();
@@ -215,6 +293,7 @@
             });
 
             if (res.status === 401) {
+                saveFormDraft();
                 showLoginView();
                 return;
             }
@@ -245,6 +324,16 @@
         }
     }
 
+    // ── 同步已收录 URLs 以便后台更新浏览器图标徽标 (Badge) ──
+    async function syncCollectedUrls() {
+        if (!chrome.storage || !chrome.storage.local) return;
+        const urls = existingSites.map(s => normalizeUrl(s.url)).filter(Boolean);
+        await chrome.storage.local.set({ dognav_collected_urls: urls });
+        if (chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({ action: 'REFRESH_BADGES' }).catch(() => {});
+        }
+    }
+
     // ── 加载元数据（分类、标签、已有站点） ──
     async function loadMeta() {
         try {
@@ -257,6 +346,7 @@
             if (catRes.ok) {
                 allCategories = await catRes.json();
                 renderCategories();
+                renderManageCategoryFilter();
             }
 
             if (tagRes.ok) {
@@ -267,6 +357,7 @@
             if (sitesRes.ok) {
                 existingSites = await sitesRes.json();
                 checkUrlDuplicate(inputUrl.value.trim());
+                await syncCollectedUrls();
             }
         } catch (e) {
             console.error('Failed to load metadata', e);
@@ -287,6 +378,19 @@
             opt.textContent = (c.icon ? c.icon + ' ' : '') + c.name;
             if (idx === 0) opt.selected = true;
             selectCategory.appendChild(opt);
+        });
+    }
+
+    function renderManageCategoryFilter() {
+        if (!manageCategoryFilter) return;
+        const curVal = manageCategoryFilter.value;
+        manageCategoryFilter.innerHTML = '<option value="">全部分类</option>';
+        allCategories.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = (c.icon ? c.icon + ' ' : '') + c.name;
+            if (c.id === curVal) opt.selected = true;
+            manageCategoryFilter.appendChild(opt);
         });
     }
 
@@ -316,6 +420,35 @@
             .filter(n => Number.isInteger(n) && n > 0);
     }
 
+    // ── 表单草稿保护（防止 401 丢失编辑数据） ──
+    function saveFormDraft() {
+        unsavedDraft = {
+            url: inputUrl.value,
+            name: inputName.value,
+            category: selectCategory.value,
+            icon: inputIcon.value,
+            description: inputDesc.value,
+            is_featured: inputFeatured.checked,
+            sort_order: inputSort.value,
+            tags: getSelectedTagIds()
+        };
+    }
+
+    function restoreFormDraft() {
+        if (!unsavedDraft) return;
+        inputUrl.value = unsavedDraft.url || '';
+        inputName.value = unsavedDraft.name || '';
+        if (unsavedDraft.category) selectCategory.value = unsavedDraft.category;
+        inputIcon.value = unsavedDraft.icon || '';
+        renderIcon(unsavedDraft.icon);
+        inputDesc.value = unsavedDraft.description || '';
+        inputFeatured.checked = !!unsavedDraft.is_featured;
+        inputSort.value = unsavedDraft.sort_order || 0;
+        selectTagsForSite(unsavedDraft.tags || []);
+        checkUrlDuplicate(inputUrl.value);
+        unsavedDraft = null;
+    }
+
     // ── 视图控制 ──
     function showLoginView() {
         loginView.style.display = 'flex';
@@ -332,10 +465,18 @@
         if (manageView) manageView.style.display = 'none';
         successView.style.display = 'none';
 
-        // 1. 获取当前活动标签页信息或 URL 参数
+        // 1. 如果有未保存草稿，优先恢复草稿
+        if (unsavedDraft) {
+            await loadMeta();
+            restoreFormDraft();
+            return;
+        }
+
+        // 2. 获取当前活动标签页信息或 URL 参数
         const params = new URLSearchParams(window.location.search);
         let targetUrl = params.get('url') || '';
         let targetTitle = params.get('title') || '';
+        let activeTabObj = null;
 
         if (!targetUrl && chrome.tabs && chrome.tabs.query) {
             try {
@@ -343,6 +484,7 @@
                 if (tab && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://')) {
                     targetUrl = tab.url;
                     targetTitle = tab.title || '';
+                    activeTabObj = tab;
                 }
             } catch (e) {}
         }
@@ -352,13 +494,29 @@
             inputName.value = targetTitle;
         }
 
-        // 2. 加载分类、标签及查重列表
+        // 3. 加载分类、标签及查重列表
         await loadMeta();
 
-        // 3. 异步抓取高分辨率图标
-        if (targetUrl) {
+        // 4. 优先通过客户端瞬时提取 DOM 信息（兼顾速度与内网网址）
+        let domExtracted = false;
+        if (activeTabObj) {
+            const meta = await extractTabMeta(activeTabObj);
+            if (meta) {
+                if (meta.title && !inputName.value.trim()) inputName.value = meta.title;
+                if (meta.description && !inputDesc.value.trim()) inputDesc.value = meta.description;
+                if (meta.icon) {
+                    inputIcon.value = meta.icon;
+                    renderIcon(meta.icon);
+                    iconStatus.textContent = '⚡ 已从当前页面即时提取';
+                    domExtracted = true;
+                }
+            }
+        }
+
+        // 5. 若客户端未能提取到图标，异步由服务端补全高分辨率图标
+        if (targetUrl && !domExtracted) {
             fetchPageInfo(targetUrl, !targetTitle, true);
-        } else {
+        } else if (!targetUrl) {
             inputUrl.focus();
         }
     }
@@ -368,7 +526,8 @@
         addView.style.display = 'none';
         successView.style.display = 'none';
         if (manageView) manageView.style.display = 'flex';
-        renderManageList('');
+        manageCurrentLimit = MANAGE_PAGE_STEP;
+        renderManageList();
         if (manageSearchInput) {
             manageSearchInput.value = '';
             manageSearchInput.focus();
@@ -408,8 +567,9 @@
                 return false;
             }
 
-            // 从本地缓存中移除
+            // 从本地缓存中移除并同步 Badge
             existingSites = existingSites.filter(s => s.id !== siteId);
+            await syncCollectedUrls();
             return true;
         } catch (e) {
             alert('删除请求失败：' + (e.message || '网络连接异常'));
@@ -417,28 +577,39 @@
         }
     }
 
-    // ── 渲染管理列表 ──
-    function renderManageList(query = '') {
+    // ── 渲染管理列表（支持搜索、分类过滤与分页） ──
+    function renderManageList() {
         if (!manageSiteList || !manageStats) return;
-        const q = (query || '').trim().toLowerCase();
-        const filtered = q
-            ? existingSites.filter(s =>
+        const q = (manageSearchInput ? manageSearchInput.value : '').trim().toLowerCase();
+        const catFilter = manageCategoryFilter ? manageCategoryFilter.value : '';
+
+        let filtered = existingSites;
+        if (catFilter) {
+            filtered = filtered.filter(s => String(s.category) === String(catFilter));
+        }
+
+        if (q) {
+            filtered = filtered.filter(s =>
                 (s.name && s.name.toLowerCase().includes(q)) ||
                 (s.url && s.url.toLowerCase().includes(q)) ||
                 (s.description && s.description.toLowerCase().includes(q)) ||
                 (s.category && String(s.category).toLowerCase().includes(q))
-            )
-            : existingSites;
+            );
+        }
 
-        manageStats.textContent = `共 ${existingSites.length} 个站点${q ? `（匹配到 ${filtered.length} 个）` : ''}`;
+        const totalFiltered = filtered.length;
+        manageStats.textContent = `共 ${existingSites.length} 个站点${(q || catFilter) ? `（筛选出 ${totalFiltered} 个）` : ''}`;
 
-        if (filtered.length === 0) {
-            manageSiteList.innerHTML = `<div style="text-align: center; color: #a0aec0; padding: 40px 10px; font-size: 13px;">${q ? '未找到匹配的站点' : '导航站暂无收藏站点'}</div>`;
+        if (totalFiltered === 0) {
+            manageSiteList.innerHTML = `<div style="text-align: center; color: #a0aec0; padding: 40px 10px; font-size: 13px;">${(q || catFilter) ? '未找到匹配的站点' : '导航站暂无收藏站点'}</div>`;
+            if (managePagination) managePagination.style.display = 'none';
             return;
         }
 
+        const pagedItems = filtered.slice(0, manageCurrentLimit);
         manageSiteList.innerHTML = '';
-        filtered.forEach(site => {
+
+        pagedItems.forEach(site => {
             const item = document.createElement('div');
             item.className = 'manage-site-item';
 
@@ -479,13 +650,24 @@
                     item.style.opacity = '0';
                     item.style.transform = 'translateX(20px)';
                     setTimeout(() => {
-                        renderManageList(manageSearchInput ? manageSearchInput.value : '');
+                        renderManageList();
                     }, 200);
                 }
             });
 
             manageSiteList.appendChild(item);
         });
+
+        // 分页加载按钮状态
+        if (managePagination && btnManageLoadMore) {
+            if (totalFiltered > manageCurrentLimit) {
+                const remaining = totalFiltered - manageCurrentLimit;
+                btnManageLoadMore.textContent = `加载更多站点 (剩余 ${remaining} 项)`;
+                managePagination.style.display = 'flex';
+            } else {
+                managePagination.style.display = 'none';
+            }
+        }
     }
 
     function loadSiteIntoAddView(site) {
@@ -500,6 +682,8 @@
         inputFeatured.checked = !!site.is_featured;
         inputSort.value = site.sort_order || 0;
         checkUrlDuplicate(site.url || '');
+        // 关键修复：编辑时回显既有标签
+        selectTagsForSite(site.tags || []);
     }
 
     // ── 保存 / 更新站点 ──
@@ -554,6 +738,7 @@
             });
 
             if (res.status === 401) {
+                saveFormDraft();
                 showLoginView();
                 return;
             }
@@ -568,7 +753,7 @@
 
             const siteId = isUpdate ? currentMatchedSite.id : Number(data.id);
             const tagIds = getSelectedTagIds();
-            if (siteId > 0 && tagIds.length > 0) {
+            if (siteId > 0) {
                 await fetch(`${currentServerUrl}/api/sites/${siteId}/tags`, {
                     method: 'POST',
                     headers: authHeaders(),
@@ -576,15 +761,19 @@
                 }).catch(() => {});
             }
 
-            // 更新本地 existingSites
+            // 更新本地 existingSites 及标签
+            const savedTags = allTags.filter(t => tagIds.includes(t.id));
             if (isUpdate) {
                 const idx = existingSites.findIndex(s => s.id === siteId);
                 if (idx !== -1) {
-                    existingSites[idx] = { ...existingSites[idx], name, url: rawUrl, description, icon, category, is_featured, sort_order };
+                    existingSites[idx] = { ...existingSites[idx], name, url: rawUrl, description, icon, category, is_featured, sort_order, tags: savedTags };
                 }
             } else {
-                existingSites.push({ id: siteId, name, url: rawUrl, description, icon, category, is_featured, sort_order });
+                existingSites.push({ id: siteId, name, url: rawUrl, description, icon, category, is_featured, sort_order, tags: savedTags });
             }
+
+            // 同步徽标
+            await syncCollectedUrls();
 
             const selectedCatText = selectCategory.options[selectCategory.selectedIndex]?.textContent || '已选分类';
             showSuccessView(
@@ -633,9 +822,7 @@
             let data = null;
             try {
                 data = await res.json();
-            } catch {
-                // Non-JSON response (e.g. 404/500 HTML)
-            }
+            } catch {}
 
             if (!res.ok) {
                 const errMsg = (data && data.error) ? data.error : `HTTP ${res.status}`;
@@ -685,7 +872,6 @@
             return;
         }
 
-        // 验证当前 token 是否有效
         try {
             const res = await fetch(`${currentServerUrl}/api/auth/me`, {
                 headers: { 'Authorization': 'Bearer ' + currentToken }
@@ -697,7 +883,6 @@
             }
             await showAddView();
         } catch (e) {
-            // 网络异常时，依然尝试展示收藏面板
             await showAddView();
         }
     }
@@ -734,12 +919,152 @@
         btnSuccessManage.addEventListener('click', showManageView);
     }
 
-    if (manageSearchInput) {
-        manageSearchInput.addEventListener('input', (e) => {
-            renderManageList(e.target.value);
+    // 快速新建分类
+    if (btnToggleNewCat) {
+        btnToggleNewCat.addEventListener('click', () => {
+            const isHidden = newCatRow.style.display === 'none';
+            newCatRow.style.display = isHidden ? 'flex' : 'none';
+            if (isHidden) newCatName.focus();
+        });
+    }
+    if (btnCancelNewCat) {
+        btnCancelNewCat.addEventListener('click', () => {
+            newCatRow.style.display = 'none';
+            newCatName.value = '';
+        });
+    }
+    if (btnConfirmNewCat) {
+        btnConfirmNewCat.addEventListener('click', async () => {
+            const name = newCatName.value.trim();
+            const icon = newCatIcon.value.trim() || '📁';
+            if (!name) {
+                newCatName.focus();
+                return;
+            }
+            const catId = 'cat_' + Date.now().toString(36);
+            btnConfirmNewCat.disabled = true;
+            btnConfirmNewCat.textContent = '...';
+
+            try {
+                const res = await fetch(`${currentServerUrl}/api/categories`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ id: catId, name, icon, sort_order: allCategories.length + 1 })
+                });
+
+                if (res.status === 401) {
+                    saveFormDraft();
+                    showLoginView();
+                    return;
+                }
+
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    alert(d.error || '创建分类失败');
+                    return;
+                }
+
+                allCategories.push({ id: catId, name, icon, is_active: 1, sort_order: allCategories.length + 1 });
+                renderCategories();
+                selectCategory.value = catId;
+                renderManageCategoryFilter();
+                newCatRow.style.display = 'none';
+                newCatName.value = '';
+            } catch (err) {
+                alert('网络请求失败：' + err.message);
+            } finally {
+                btnConfirmNewCat.disabled = false;
+                btnConfirmNewCat.textContent = '添加';
+            }
         });
     }
 
+    // 快速新建标签
+    if (btnToggleNewTag) {
+        btnToggleNewTag.addEventListener('click', () => {
+            const isHidden = newTagRow.style.display === 'none';
+            newTagRow.style.display = isHidden ? 'flex' : 'none';
+            if (isHidden) newTagName.focus();
+        });
+    }
+    if (btnCancelNewTag) {
+        btnCancelNewTag.addEventListener('click', () => {
+            newTagRow.style.display = 'none';
+            newTagName.value = '';
+        });
+    }
+    if (btnConfirmNewTag) {
+        btnConfirmNewTag.addEventListener('click', async () => {
+            const name = newTagName.value.trim();
+            if (!name) {
+                newTagName.focus();
+                return;
+            }
+            btnConfirmNewTag.disabled = true;
+            btnConfirmNewTag.textContent = '...';
+
+            try {
+                const res = await fetch(`${currentServerUrl}/api/tags`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: JSON.stringify({ name, color: '#667eea' })
+                });
+
+                if (res.status === 401) {
+                    saveFormDraft();
+                    showLoginView();
+                    return;
+                }
+
+                if (!res.ok && res.status !== 409) {
+                    const d = await res.json().catch(() => ({}));
+                    alert(d.error || '创建标签失败');
+                    return;
+                }
+
+                // 重新加载标签并自动高亮选中新标签
+                const tagRes = await fetch(`${currentServerUrl}/api/tags`);
+                if (tagRes.ok) {
+                    allTags = await tagRes.json();
+                    renderTags();
+                    const newTag = allTags.find(t => t.name.toLowerCase() === name.toLowerCase());
+                    if (newTag) {
+                        const chip = tagChips.querySelector(`.tag-chip[data-id="${newTag.id}"]`);
+                        if (chip) chip.classList.add('active');
+                    }
+                }
+                newTagRow.style.display = 'none';
+                newTagName.value = '';
+            } catch (err) {
+                alert('网络请求失败：' + err.message);
+            } finally {
+                btnConfirmNewTag.disabled = false;
+                btnConfirmNewTag.textContent = '添加';
+            }
+        });
+    }
+
+    // 管理面板搜索与分类筛选
+    if (manageSearchInput) {
+        manageSearchInput.addEventListener('input', () => {
+            manageCurrentLimit = MANAGE_PAGE_STEP;
+            renderManageList();
+        });
+    }
+    if (manageCategoryFilter) {
+        manageCategoryFilter.addEventListener('change', () => {
+            manageCurrentLimit = MANAGE_PAGE_STEP;
+            renderManageList();
+        });
+    }
+    if (btnManageLoadMore) {
+        btnManageLoadMore.addEventListener('click', () => {
+            manageCurrentLimit += MANAGE_PAGE_STEP;
+            renderManageList();
+        });
+    }
+
+    // 删除当前网址
     if (btnDeleteCurrent) {
         btnDeleteCurrent.addEventListener('click', async () => {
             if (!currentMatchedSite) return;
@@ -788,6 +1113,18 @@
 
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            if (newCatRow && newCatRow.style.display !== 'none') {
+                newCatRow.style.display = 'none';
+                return;
+            }
+            if (newTagRow && newTagRow.style.display !== 'none') {
+                newTagRow.style.display = 'none';
+                return;
+            }
+            if (manageView && manageView.style.display !== 'none') {
+                showAddView();
+                return;
+            }
             window.close();
         } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             if (addView.style.display !== 'none') {

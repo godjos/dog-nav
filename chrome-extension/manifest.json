@@ -19,6 +19,7 @@
   },
   "permissions": [
     "activeTab",
+    "scripting",
     "storage",
     "contextMenus"
   ],
@@ -35,8 +36,8 @@
   "commands": {
     "_execute_action": {
       "suggested_key": {
-        "default": "Alt+D",
-        "mac": "Alt+D"
+        "default": "Alt+B",
+        "mac": "Alt+B"
       },
       "description": "打开 Dog-Nav 快速收藏"
     }
