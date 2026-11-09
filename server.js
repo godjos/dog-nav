@@ -1909,6 +1909,7 @@ async function fetchPageMeta(pageUrl, origin, hops = 0) {
             currentUrl = result.redirect;
             continue;
         }
+        if (result.netError) result.meta.originDead = true;
         return result.meta;
     }
     return emptyMeta(currentOrigin);
@@ -1917,15 +1918,15 @@ async function fetchPageMeta(pageUrl, origin, hops = 0) {
 // Single HTTP GET; resolves to { meta } or { redirect } (validated, absolute).
 function fetchPageMetaOnce(pageUrl, origin) {
     return new Promise((resolve) => {
-        const fallback = () => resolve({ meta: emptyMeta(origin) });
+        const fallback = (netError = false) => resolve({ meta: emptyMeta(origin), netError });
         const mod = pageUrl.startsWith('https') ? https : http;
         let req;
         try {
-            req = mod.get(pageUrl, { timeout: 8000, headers: BROWSER_HEADERS }, (resp) => {
+            req = mod.get(pageUrl, { timeout: 4000, headers: BROWSER_HEADERS }, (resp) => {
                 if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
                     resp.resume();
                     let next;
-                    try { next = new URL(resp.headers.location, pageUrl).href; } catch { return fallback(); }
+                    try { next = new URL(resp.headers.location, pageUrl).href; } catch { return fallback(false); }
                     return resolve({ redirect: next });
                 }
                 let html = '';
@@ -1934,11 +1935,11 @@ function fetchPageMetaOnce(pageUrl, origin) {
                     if (html.length > 80000) { resp.destroy(); resolve({ meta: parseMeta(html, origin) }); }
                 });
                 resp.on('end', () => resolve({ meta: parseMeta(html, origin) }));
-                resp.on('error', fallback);
+                resp.on('error', () => fallback(true));
             });
-        } catch { return fallback(); }
-        req.on('error', fallback);
-        req.on('timeout', () => { req.destroy(); fallback(); });
+        } catch { return fallback(true); }
+        req.on('error', () => fallback(true));
+        req.on('timeout', () => { req.destroy(); fallback(true); });
     });
 }
 
@@ -2084,7 +2085,7 @@ function isValidIconBuffer(buf, ext) {
 }
 
 // Download a remote icon into uploads/icons, return local path (or null on failure)
-async function downloadIcon(iconUrl, redirects = 0) {
+async function downloadIcon(iconUrl, redirects = 0, onNetFail = null) {
     if (!String(iconUrl).startsWith('http') || redirects > 3) return null;
     // SSRF guard: every hop (initial URL and each redirect target) must pass
     // the DNS-level private-host check before any request is made.
@@ -2098,7 +2099,7 @@ async function downloadIcon(iconUrl, redirects = 0) {
         try { referer = new URL(iconUrl).origin + '/'; } catch { return resolve(null); }
         const mod = iconUrl.startsWith('https') ? https : http;
         const req = mod.get(iconUrl, {
-            timeout: 6000,
+            timeout: 3500,
             headers: {
                 ...ICON_REQUEST_HEADERS,
                 'Referer': referer
@@ -2108,7 +2109,7 @@ async function downloadIcon(iconUrl, redirects = 0) {
                 resp.resume();
                 let next;
                 try { next = new URL(resp.headers.location, iconUrl).href; } catch { return resolve(null); }
-                return resolve(downloadIcon(next, redirects + 1));
+                return resolve(downloadIcon(next, redirects + 1, onNetFail));
             }
             if (resp.statusCode !== 200) { resp.resume(); return resolve(null); }
             const mime = (resp.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
@@ -2141,10 +2142,20 @@ async function downloadIcon(iconUrl, redirects = 0) {
                     resolve(`/uploads/icons/${name}`);
                 } catch { resolve(null); }
             });
-            resp.on('error', () => resolve(null));
+            resp.on('error', () => {
+                if (onNetFail) { try { onNetFail(new URL(iconUrl).origin); } catch {} }
+                resolve(null);
+            });
         });
-        req.on('error', () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.on('error', () => {
+            if (onNetFail) { try { onNetFail(new URL(iconUrl).origin); } catch {} }
+            resolve(null);
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            if (onNetFail) { try { onNetFail(new URL(iconUrl).origin); } catch {} }
+            resolve(null);
+        });
     });
 }
 
@@ -2152,7 +2163,7 @@ async function downloadIcon(iconUrl, redirects = 0) {
 // Tier 1: HTML parsed candidates
 // Tier 2: Well-known origin paths (/favicon.ico, /apple-touch-icon.png, /favicon.png)
 // Tier 3: External high-availability mirrors (saved locally, zero frontend dependency)
-async function resolveAndDownloadFavicon(siteUrl, pageCandidates = []) {
+async function resolveAndDownloadFavicon(siteUrl, pageCandidates = [], isOriginDead = false) {
     let parsed;
     try { parsed = new URL(siteUrl); } catch { return null; }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
@@ -2161,15 +2172,21 @@ async function resolveAndDownloadFavicon(siteUrl, pageCandidates = []) {
     const origin = parsed.origin;
     const hostname = parsed.hostname;
 
+    const deadOrigins = new Set();
+    if (isOriginDead) deadOrigins.add(origin);
+    const onNetFail = (dead) => deadOrigins.add(dead);
+
     const candidates = [];
     for (const c of pageCandidates) {
         if (c && typeof c === 'string' && c.startsWith('http')) {
             candidates.push(c);
         }
     }
-    candidates.push(`${origin}/favicon.ico`);
-    candidates.push(`${origin}/apple-touch-icon.png`);
-    candidates.push(`${origin}/favicon.png`);
+    if (!deadOrigins.has(origin)) {
+        candidates.push(`${origin}/favicon.ico`);
+        candidates.push(`${origin}/apple-touch-icon.png`);
+        candidates.push(`${origin}/favicon.png`);
+    }
 
     const isTestDomain = hostname.endsWith('.example') || hostname.endsWith('.test') ||
                          hostname.endsWith('.invalid') || hostname.endsWith('.localhost') ||
@@ -2185,7 +2202,8 @@ async function resolveAndDownloadFavicon(siteUrl, pageCandidates = []) {
         try {
             const candUrl = new URL(cand);
             if (await isPrivateHost(candUrl.hostname)) continue;
-            const localPath = await downloadIcon(cand);
+            if (deadOrigins.has(candUrl.origin)) continue;
+            const localPath = await downloadIcon(cand, 0, onNetFail);
             if (localPath) return localPath;
         } catch {
             continue;
@@ -2248,7 +2266,7 @@ async function fetchRepairedIcon(siteUrl) {
 
     const meta = await fetchPageMeta(siteUrl, origin);
     const candidateList = meta.icons && meta.icons.length ? meta.icons : (meta.icon ? [meta.icon] : []);
-    const localPath = await resolveAndDownloadFavicon(siteUrl, candidateList);
+    const localPath = await resolveAndDownloadFavicon(siteUrl, candidateList, Boolean(meta.originDead));
     if (!localPath) return { reason: 'fetch_failed' };
     return { icon: localPath };
 }
@@ -2274,35 +2292,29 @@ app.post('/api/admin/repair-icons', requireAdmin, async (req, res) => {
             return res.status(400).json({ error: `Too many site IDs (max ${ICON_REPAIR_BATCH_MAX} per batch)` });
         }
 
-        const results = [];
         const summary = { repaired: 0, unchanged: 0, skipped: 0, failed: 0 };
-        for (const id of ids) {
+        const results = await Promise.all(ids.map(async (id) => {
             const row = db.exec('SELECT url, icon FROM sites WHERE id=?', [id]);
             if (!row[0] || !row[0].values.length) {
-                results.push({ id, status: 'skipped', icon: '', reason: 'site_not_found' });
-                summary.skipped++;
-                continue;
+                return { id, status: 'skipped', icon: '', reason: 'site_not_found' };
             }
             const [url, oldIcon] = row[0].values[0];
             if (!includeText && !isRepairableIcon(oldIcon)) {
-                results.push({ id, status: 'skipped', icon: oldIcon || '', reason: 'text_icon' });
-                summary.skipped++;
-                continue;
+                return { id, status: 'skipped', icon: oldIcon || '', reason: 'text_icon' };
             }
             const got = await fetchRepairedIcon(url);
             if (!got.icon) {
-                results.push({ id, status: 'failed', icon: oldIcon || '', reason: got.reason || 'fetch_failed' });
-                summary.failed++;
-                continue;
+                return { id, status: 'failed', icon: oldIcon || '', reason: got.reason || 'fetch_failed' };
             }
             if (got.icon === oldIcon) {
-                results.push({ id, status: 'unchanged', icon: oldIcon || '', reason: 'same_icon' });
-                summary.unchanged++;
-                continue;
+                return { id, status: 'unchanged', icon: oldIcon || '', reason: 'same_icon' };
             }
             db.run("UPDATE sites SET icon=?, updated_at=datetime('now') WHERE id=?", [got.icon, id]);
-            results.push({ id, status: 'repaired', icon: got.icon });
-            summary.repaired++;
+            return { id, status: 'repaired', icon: got.icon };
+        }));
+
+        for (const r of results) {
+            if (r.status in summary) summary[r.status]++;
         }
 
         logAction(req.userId, 'repair_icons', `repaired ${summary.repaired}, unchanged ${summary.unchanged}, skipped ${summary.skipped}, failed ${summary.failed}`);

@@ -1168,7 +1168,7 @@ async function fetchIconAsDataUri(iconUrl) {
     } catch { return null; }
 }
 
-async function resolveAndDownloadFaviconDataUri(siteUrl, pageCandidates = []) {
+async function resolveAndDownloadFaviconDataUri(siteUrl, pageCandidates = [], isOriginDead = false) {
     let parsed;
     try { parsed = new URL(siteUrl); } catch { return null; }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
@@ -1177,15 +1177,20 @@ async function resolveAndDownloadFaviconDataUri(siteUrl, pageCandidates = []) {
     const origin = parsed.origin;
     const hostname = parsed.hostname;
 
+    const deadOrigins = new Set();
+    if (isOriginDead) deadOrigins.add(origin);
+
     const candidates = [];
     for (const c of pageCandidates) {
         if (c && typeof c === 'string' && c.startsWith('http')) {
             candidates.push(c);
         }
     }
-    candidates.push(`${origin}/favicon.ico`);
-    candidates.push(`${origin}/apple-touch-icon.png`);
-    candidates.push(`${origin}/favicon.png`);
+    if (!deadOrigins.has(origin)) {
+        candidates.push(`${origin}/favicon.ico`);
+        candidates.push(`${origin}/apple-touch-icon.png`);
+        candidates.push(`${origin}/favicon.png`);
+    }
 
     const isTestDomain = hostname.endsWith('.example') || hostname.endsWith('.test') ||
                          hostname.endsWith('.invalid') || hostname.endsWith('.localhost') ||
@@ -1201,8 +1206,10 @@ async function resolveAndDownloadFaviconDataUri(siteUrl, pageCandidates = []) {
         try {
             const candUrl = new URL(cand);
             if (isPrivateHostSync(candUrl.hostname)) continue;
+            if (deadOrigins.has(candUrl.origin)) continue;
             const dataUri = await fetchIconAsDataUri(cand);
             if (dataUri) return dataUri;
+            if (candUrl.origin === origin) deadOrigins.add(origin);
         } catch {
             continue;
         }
@@ -1289,35 +1296,29 @@ app.post('/api/admin/repair-icons', requireAdmin, async (c) => {
             return c.json({ error: `Too many site IDs (max ${ICON_REPAIR_BATCH_MAX} per batch)` }, 400);
         }
 
-        const results = [];
         const summary = { repaired: 0, unchanged: 0, skipped: 0, failed: 0 };
-        for (const id of ids) {
+        const results = await Promise.all(ids.map(async (id) => {
             const site = await c.env.DB.prepare('SELECT id, url, icon FROM sites WHERE id=?').bind(id).first();
             if (!site) {
-                results.push({ id, status: 'skipped', icon: '', reason: 'site_not_found' });
-                summary.skipped++;
-                continue;
+                return { id, status: 'skipped', icon: '', reason: 'site_not_found' };
             }
             const oldIcon = site.icon || '';
             if (!includeText && !isRepairableIcon(oldIcon)) {
-                results.push({ id, status: 'skipped', icon: oldIcon, reason: 'text_icon' });
-                summary.skipped++;
-                continue;
+                return { id, status: 'skipped', icon: oldIcon, reason: 'text_icon' };
             }
             const icon = await fetchRepairedIconDataUri(site.url);
             if (!icon) {
-                results.push({ id, status: 'failed', icon: oldIcon, reason: 'fetch_failed' });
-                summary.failed++;
-                continue;
+                return { id, status: 'failed', icon: oldIcon, reason: 'fetch_failed' };
             }
             if (icon === oldIcon) {
-                results.push({ id, status: 'unchanged', icon: oldIcon, reason: 'same_icon' });
-                summary.unchanged++;
-                continue;
+                return { id, status: 'unchanged', icon: oldIcon, reason: 'same_icon' };
             }
             await c.env.DB.prepare("UPDATE sites SET icon=?, updated_at=datetime('now') WHERE id=?").bind(icon, id).run();
-            results.push({ id, status: 'repaired', icon });
-            summary.repaired++;
+            return { id, status: 'repaired', icon };
+        }));
+
+        for (const r of results) {
+            if (r.status in summary) summary[r.status]++;
         }
 
         await logAction(c.env.DB, c.get('userId'), 'repair_icons', `repaired ${summary.repaired}, unchanged ${summary.unchanged}, skipped ${summary.skipped}, failed ${summary.failed}`);
