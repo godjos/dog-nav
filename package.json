@@ -8,6 +8,7 @@
     "dev": "node server.js",
     "test": "node --test",
     "test:contract": "node --test test/contract.test.js",
+    "build:extension": "node scripts/package-extension.js",
     "deploy:cf": "node deploy.js",
     "deploy": "node deploy.js",
     "db:seed": "npx wrangler d1 execute dognav --remote --file=./cloudflare/schema.sql && npx wrangler d1 execute dognav --remote --file=./cloudflare/seed.sql"

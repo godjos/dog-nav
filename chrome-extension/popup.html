@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dog-Nav 快速收藏</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="popup-container">
+        <!-- 头部 -->
+        <header class="header">
+            <div class="brand">
+                <img src="icons/icon48.png" alt="logo" class="logo-img">
+                <span class="brand-title">Dog-Nav 快速收藏</span>
+            </div>
+            <button type="button" class="btn-icon" id="btnToggleSettings" title="设置 / 切换服务器">⚙️</button>
+        </header>
+
+        <!-- 首次配置 / 登录视图 -->
+        <div id="loginView" class="view" style="display: none;">
+            <div class="login-welcome">
+                <h2>连接你的导航站</h2>
+                <p>首次使用请输入导航站地址与管理员凭据：</p>
+            </div>
+            <div class="alert-box error" id="loginError" style="display: none;"></div>
+            <div class="form-group">
+                <label for="cfgServerUrl">导航站地址</label>
+                <input type="text" id="cfgServerUrl" placeholder="例如：http://localhost:3000" value="http://localhost:3000">
+            </div>
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label for="cfgUsername">管理员账号</label>
+                    <input type="text" id="cfgUsername" value="admin">
+                </div>
+                <div class="form-group" style="flex: 1.2;">
+                    <label for="cfgPassword">管理员密码</label>
+                    <input type="password" id="cfgPassword" placeholder="输入密码">
+                </div>
+            </div>
+            <button type="button" class="btn-primary" id="btnLogin">
+                <span>连接并登录</span>
+            </button>
+        </div>
+
+        <!-- 快速收藏主表单视图 -->
+        <div id="addView" class="view" style="display: none;">
+            <div class="alert-box error" id="addError" style="display: none;"></div>
+            
+            <!-- 重复与同域名提示 -->
+            <div id="urlDupNotice" class="dup-alert" style="display: none;"></div>
+
+            <div class="form-group">
+                <label for="siteUrl">网址 *</label>
+                <div class="input-wrap">
+                    <input type="text" id="siteUrl" placeholder="https://example.com" required>
+                    <button type="button" class="btn-sub" id="btnRefetch" title="重新获取标题和高清图标">抓取</button>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 1.4;">
+                    <label for="siteName">网站名称 *</label>
+                    <input type="text" id="siteName" placeholder="网站名称" required>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="siteCategory">分类 *</label>
+                    <select id="siteCategory" required>
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>网站图标</label>
+                <div class="icon-row">
+                    <div class="icon-box" id="iconBox">
+                        <span id="iconEmoji" class="icon-emoji">🌐</span>
+                        <img id="iconImg" src="" alt="icon" style="display: none;">
+                    </div>
+                    <div class="icon-meta">
+                        <span class="icon-status" id="iconStatus">等待解析...</span>
+                        <input type="text" id="siteIcon" class="icon-input" placeholder="可手动输入图标网址或 Emoji">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="siteDesc">网站简介</label>
+                <textarea id="siteDesc" placeholder="简短介绍此网站的功能..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>选择标签 (可选)</label>
+                <div class="tag-chips" id="tagChips">
+                    <span class="tag-empty">加载标签中...</span>
+                </div>
+            </div>
+
+            <div class="form-row options-row">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="siteFeatured"> 设为精选推荐
+                </label>
+                <div class="sort-wrap">
+                    <span>排序:</span>
+                    <input type="number" id="siteSort" value="0" style="width: 50px; text-align: center;">
+                </div>
+            </div>
+
+            <div class="footer-actions">
+                <button type="button" class="btn-cancel" id="btnCancel">取消 (Esc)</button>
+                <button type="button" class="btn-primary" id="btnSave">
+                    <span>保存到 Dog-Nav</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 成功状态视图 -->
+        <div id="successView" class="view success-view" style="display: none;">
+            <div class="success-icon">✓</div>
+            <h2>收藏成功！</h2>
+            <p id="successDesc">已成功添加至导航站。</p>
+            <button type="button" class="btn-sub" id="btnClose">立即关闭</button>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

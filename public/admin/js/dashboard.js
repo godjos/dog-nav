@@ -581,6 +581,27 @@
             });
         }
 
+        // ═══ Chrome 浏览器扩展模态框 ═══
+        const chromeExtBtn = document.getElementById('chromeExtBtn');
+        const chromeExtOverlay = document.getElementById('chromeExtOverlay');
+        const chromeExtCancelBtn = document.getElementById('chromeExtCancelBtn');
+
+        if (chromeExtBtn) {
+            chromeExtBtn.addEventListener('click', () => {
+                chromeExtOverlay.classList.add('show');
+            });
+        }
+        if (chromeExtCancelBtn) {
+            chromeExtCancelBtn.addEventListener('click', () => {
+                chromeExtOverlay.classList.remove('show');
+            });
+        }
+        if (chromeExtOverlay) {
+            chromeExtOverlay.addEventListener('click', (e) => {
+                if (e.target === chromeExtOverlay) chromeExtOverlay.classList.remove('show');
+            });
+        }
+
         if (bookmarkletOverlay) {
             bookmarkletOverlay.addEventListener('click', (e) => {
                 if (e.target === bookmarkletOverlay) bookmarkletOverlay.classList.remove('show');

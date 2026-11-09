@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dog-Nav 扩展设置</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+            background: #f7f9fc;
+            color: #2d3748;
+            padding: 24px;
+            font-size: 14px;
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            border: 1px solid #edf2f7;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #edf2f7;
+        }
+        .header img {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+        }
+        .header h1 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #1a202c;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            font-weight: 600;
+            font-size: 13px;
+            color: #4a5568;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #cbd5e0;
+            border-radius: 8px;
+            font-size: 13.5px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 9px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13.5px;
+            font-weight: 600;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .btn-sub {
+            background: #edf2f7;
+            color: #4a5568;
+        }
+        .btn-danger {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .alert {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12.5px;
+            margin-bottom: 14px;
+            display: none;
+        }
+        .alert.show { display: block; }
+        .alert.success { background: #def7ec; color: #03543f; border: 1px solid #bcf0da; }
+        .alert.error { background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="icons/icon48.png" alt="logo">
+            <h1>Dog-Nav 扩展设置</h1>
+        </div>
+
+        <div id="statusAlert" class="alert"></div>
+
+        <div class="form-group">
+            <label for="serverUrl">Dog-Nav 导航站地址</label>
+            <input type="text" id="serverUrl" placeholder="http://localhost:3000">
+            <span style="font-size: 12px; color: #718096; margin-top: 3px;">
+                填入你的个人导航站主页地址（支持本地、局域网或云端域名）。
+            </span>
+        </div>
+
+        <div class="form-group">
+            <label for="authToken">认证 Token（可选手动修改）</label>
+            <input type="password" id="authToken" placeholder="已保存的授权令牌">
+        </div>
+
+        <div class="btn-row">
+            <button type="button" class="btn btn-primary" id="btnSave">保存设置</button>
+            <button type="button" class="btn btn-sub" id="btnTest">测试连通性</button>
+            <button type="button" class="btn btn-danger" id="btnClear">清除凭据</button>
+        </div>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+</html>

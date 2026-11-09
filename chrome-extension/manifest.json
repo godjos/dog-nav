@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Dog-Nav 快速收藏",
+  "version": "1.0.0",
+  "description": "一键将当前网页收藏到你的 Dog-Nav 导航站，支持自动抓取官方高清图标与描述、智能防重与多标签归类。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "收藏到 Dog-Nav",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+D",
+        "mac": "Alt+D"
+      },
+      "description": "打开 Dog-Nav 快速收藏"
+    }
+  }
+}
