@@ -72,3 +72,23 @@ test('chrome-extension: cleanServerUrl strips /admin and subpaths safely', () =>
     assert.equal(cleanServerUrl('http://localhost:3000/admin'), 'http://localhost:3000');
     assert.equal(cleanServerUrl('http://localhost:3000'), 'http://localhost:3000');
 });
+
+test('chrome-extension: supports delete actions and management search view', () => {
+    const popupHtml = fs.readFileSync(path.join(extDir, 'popup.html'), 'utf8');
+    const popupJs = fs.readFileSync(path.join(extDir, 'popup.js'), 'utf8');
+    const popupCss = fs.readFileSync(path.join(extDir, 'popup.css'), 'utf8');
+
+    assert.match(popupHtml, /id="btnDeleteCurrent"/);
+    assert.match(popupHtml, /id="btnToggleManage"/);
+    assert.match(popupHtml, /id="manageView"/);
+    assert.match(popupHtml, /id="manageSearchInput"/);
+    assert.match(popupHtml, /id="manageSiteList"/);
+
+    assert.match(popupJs, /async function deleteSite/);
+    assert.match(popupJs, /DELETE/);
+    assert.match(popupJs, /renderManageList/);
+    assert.match(popupJs, /btnDeleteCurrent/);
+
+    assert.match(popupCss, /\.btn-danger/);
+    assert.match(popupCss, /\.manage-site-list/);
+});

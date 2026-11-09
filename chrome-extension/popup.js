@@ -8,8 +8,10 @@
     // DOM Elements
     const loginView = document.getElementById('loginView');
     const addView = document.getElementById('addView');
+    const manageView = document.getElementById('manageView');
     const successView = document.getElementById('successView');
     const btnToggleSettings = document.getElementById('btnToggleSettings');
+    const btnToggleManage = document.getElementById('btnToggleManage');
 
     // Login Form Elements
     const cfgServerUrl = document.getElementById('cfgServerUrl');
@@ -37,15 +39,29 @@
     const btnRefetch = document.getElementById('btnRefetch');
 
     const btnCancel = document.getElementById('btnCancel');
+    const btnDeleteCurrent = document.getElementById('btnDeleteCurrent');
     const btnSave = document.getElementById('btnSave');
+    const btnSaveText = document.getElementById('btnSaveText');
+
+    // Manage Elements
+    const manageSearchInput = document.getElementById('manageSearchInput');
+    const manageStats = document.getElementById('manageStats');
+    const manageSiteList = document.getElementById('manageSiteList');
+    const btnBackFromManage = document.getElementById('btnBackFromManage');
+
+    // Success Elements
     const btnClose = document.getElementById('btnClose');
+    const successIcon = document.getElementById('successIcon');
+    const successTitle = document.getElementById('successTitle');
     const successDesc = document.getElementById('successDesc');
+    const btnSuccessManage = document.getElementById('btnSuccessManage');
 
     let currentServerUrl = DEFAULT_SERVER_URL;
     let currentToken = '';
     let allCategories = [];
     let allTags = [];
     let existingSites = [];
+    let currentMatchedSite = null;
 
     // ── 辅助工具 ──
     function cleanServerUrl(raw) {
@@ -138,6 +154,10 @@
     // ── 重复与同域名检查 ──
     function checkUrlDuplicate(rawUrl) {
         if (!urlDupNotice) return;
+        currentMatchedSite = null;
+        if (btnDeleteCurrent) btnDeleteCurrent.style.display = 'none';
+        if (btnSaveText) btnSaveText.textContent = '保存到 Dog-Nav';
+
         if (!rawUrl || !/^https?:\/\//i.test(rawUrl.trim())) {
             urlDupNotice.style.display = 'none';
             return;
@@ -148,10 +168,16 @@
 
         const exact = existingSites.find(s => normalizeUrl(s.url) === norm);
         if (exact) {
+            currentMatchedSite = exact;
             const catName = (allCategories.find(c => c.id === exact.category)?.name) || exact.category;
             urlDupNotice.className = 'dup-alert warning';
             urlDupNotice.style.display = 'block';
-            urlDupNotice.innerHTML = `⚠️ <b>该网址已存在！</b> 站点名称：【${escapeHtml(exact.name)}】（分类：${escapeHtml(catName)}）`;
+            urlDupNotice.innerHTML = `⚠️ <b>该网址已收录！</b> 站点：【${escapeHtml(exact.name)}】（分类：${escapeHtml(catName)}）<br><span style="font-size:11px; color:#b45309;">可直接修改后更新，或点击下方【删除此网址】</span>`;
+            if (btnDeleteCurrent) {
+                btnDeleteCurrent.style.display = 'inline-flex';
+                btnDeleteCurrent.title = `从导航站删除【${exact.name}】`;
+            }
+            if (btnSaveText) btnSaveText.textContent = '更新此站点';
             return;
         }
 
@@ -294,6 +320,7 @@
     function showLoginView() {
         loginView.style.display = 'flex';
         addView.style.display = 'none';
+        if (manageView) manageView.style.display = 'none';
         successView.style.display = 'none';
         cfgServerUrl.value = currentServerUrl;
         cfgPassword.focus();
@@ -302,6 +329,7 @@
     async function showAddView() {
         loginView.style.display = 'none';
         addView.style.display = 'flex';
+        if (manageView) manageView.style.display = 'none';
         successView.style.display = 'none';
 
         // 1. 获取当前活动标签页信息或 URL 参数
@@ -335,7 +363,146 @@
         }
     }
 
-    // ── 保存站点 ──
+    function showManageView() {
+        loginView.style.display = 'none';
+        addView.style.display = 'none';
+        successView.style.display = 'none';
+        if (manageView) manageView.style.display = 'flex';
+        renderManageList('');
+        if (manageSearchInput) {
+            manageSearchInput.value = '';
+            manageSearchInput.focus();
+        }
+    }
+
+    function showSuccessView(title, desc, icon = '✓') {
+        loginView.style.display = 'none';
+        addView.style.display = 'none';
+        if (manageView) manageView.style.display = 'none';
+        successView.style.display = 'flex';
+        if (successTitle) successTitle.textContent = title;
+        if (successDesc) successDesc.textContent = desc;
+        if (successIcon) successIcon.textContent = icon;
+    }
+
+    // ── 删除站点 ──
+    async function deleteSite(siteId, siteName) {
+        if (!confirm(`确定要从导航站中彻底删除【${siteName}】吗？\n（此操作不可撤销）`)) {
+            return false;
+        }
+
+        try {
+            const res = await fetch(`${currentServerUrl}/api/sites/${siteId}`, {
+                method: 'DELETE',
+                headers: authHeaders()
+            });
+
+            if (res.status === 401) {
+                showLoginView();
+                return false;
+            }
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || '删除失败，请稍后重试');
+                return false;
+            }
+
+            // 从本地缓存中移除
+            existingSites = existingSites.filter(s => s.id !== siteId);
+            return true;
+        } catch (e) {
+            alert('删除请求失败：' + (e.message || '网络连接异常'));
+            return false;
+        }
+    }
+
+    // ── 渲染管理列表 ──
+    function renderManageList(query = '') {
+        if (!manageSiteList || !manageStats) return;
+        const q = (query || '').trim().toLowerCase();
+        const filtered = q
+            ? existingSites.filter(s =>
+                (s.name && s.name.toLowerCase().includes(q)) ||
+                (s.url && s.url.toLowerCase().includes(q)) ||
+                (s.description && s.description.toLowerCase().includes(q)) ||
+                (s.category && String(s.category).toLowerCase().includes(q))
+            )
+            : existingSites;
+
+        manageStats.textContent = `共 ${existingSites.length} 个站点${q ? `（匹配到 ${filtered.length} 个）` : ''}`;
+
+        if (filtered.length === 0) {
+            manageSiteList.innerHTML = `<div style="text-align: center; color: #a0aec0; padding: 40px 10px; font-size: 13px;">${q ? '未找到匹配的站点' : '导航站暂无收藏站点'}</div>`;
+            return;
+        }
+
+        manageSiteList.innerHTML = '';
+        filtered.forEach(site => {
+            const item = document.createElement('div');
+            item.className = 'manage-site-item';
+
+            const catName = (allCategories.find(c => c.id === site.category)?.name) || site.category || '默认';
+            const iconSrc = site.icon
+                ? (site.icon.startsWith('/') ? (currentServerUrl + site.icon) : site.icon)
+                : '';
+
+            const iconHtml = iconSrc
+                ? `<img class="manage-site-icon" src="${escapeHtml(iconSrc)}" onerror="this.onerror=null;this.outerHTML='<span style=\\'font-size:16px;width:22px;text-align:center;\\'>🌐</span>';">`
+                : `<span style="font-size: 16px; width: 22px; text-align: center; flex-shrink: 0;">🌐</span>`;
+
+            item.innerHTML = `
+                <div class="manage-site-info">
+                    ${iconHtml}
+                    <div class="manage-site-meta">
+                        <div class="manage-site-name" title="${escapeHtml(site.name)}">
+                            <span>${escapeHtml(site.name)}</span>
+                            <span class="manage-site-cat">${escapeHtml(catName)}</span>
+                        </div>
+                        <div class="manage-site-url" title="${escapeHtml(site.url)}">${escapeHtml(site.url)}</div>
+                    </div>
+                </div>
+                <div class="manage-site-actions">
+                    <button type="button" class="btn-icon-manage btn-edit-site" title="编辑此站点">✏️</button>
+                    <button type="button" class="btn-icon-manage btn-del-site" title="删除此站点">🗑️</button>
+                </div>
+            `;
+
+            item.querySelector('.btn-edit-site').addEventListener('click', () => {
+                loadSiteIntoAddView(site);
+            });
+
+            item.querySelector('.btn-del-site').addEventListener('click', async () => {
+                const ok = await deleteSite(site.id, site.name);
+                if (ok) {
+                    item.style.transition = 'all 0.2s ease';
+                    item.style.opacity = '0';
+                    item.style.transform = 'translateX(20px)';
+                    setTimeout(() => {
+                        renderManageList(manageSearchInput ? manageSearchInput.value : '');
+                    }, 200);
+                }
+            });
+
+            manageSiteList.appendChild(item);
+        });
+    }
+
+    function loadSiteIntoAddView(site) {
+        if (manageView) manageView.style.display = 'none';
+        addView.style.display = 'flex';
+        inputUrl.value = site.url || '';
+        inputName.value = site.name || '';
+        selectCategory.value = site.category || '';
+        inputIcon.value = site.icon || '';
+        renderIcon(site.icon);
+        inputDesc.value = site.description || '';
+        inputFeatured.checked = !!site.is_featured;
+        inputSort.value = site.sort_order || 0;
+        checkUrlDuplicate(site.url || '');
+    }
+
+    // ── 保存 / 更新站点 ──
     async function saveSite() {
         showAddError('');
         const rawUrl = inputUrl.value.trim();
@@ -364,12 +531,16 @@
         const is_featured = inputFeatured.checked ? 1 : 0;
         const sort_order = parseInt(inputSort.value, 10) || 0;
 
+        const isUpdate = Boolean(currentMatchedSite && currentMatchedSite.id);
+        const method = isUpdate ? 'PUT' : 'POST';
+        const endpoint = isUpdate ? `${currentServerUrl}/api/sites/${currentMatchedSite.id}` : `${currentServerUrl}/api/sites`;
+
         btnSave.disabled = true;
-        btnSave.innerHTML = '<span class="spinner"></span> 正在保存...';
+        btnSave.innerHTML = `<span class="spinner"></span> 正在${isUpdate ? '更新' : '保存'}...`;
 
         try {
-            const res = await fetch(`${currentServerUrl}/api/sites`, {
-                method: 'POST',
+            const res = await fetch(endpoint, {
+                method,
                 headers: authHeaders(),
                 body: JSON.stringify({
                     name,
@@ -387,15 +558,15 @@
                 return;
             }
 
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                showAddError(data.error || '保存失败，请重试');
+                showAddError(data.error || (isUpdate ? '更新失败，请重试' : '保存失败，请重试'));
                 btnSave.disabled = false;
-                btnSave.innerHTML = '<span>保存到 Dog-Nav</span>';
+                btnSave.innerHTML = `<span>${isUpdate ? '更新此站点' : '保存到 Dog-Nav'}</span>`;
                 return;
             }
 
-            const siteId = Number(data.id);
+            const siteId = isUpdate ? currentMatchedSite.id : Number(data.id);
             const tagIds = getSelectedTagIds();
             if (siteId > 0 && tagIds.length > 0) {
                 await fetch(`${currentServerUrl}/api/sites/${siteId}/tags`, {
@@ -405,20 +576,29 @@
                 }).catch(() => {});
             }
 
-            // 成功视图
+            // 更新本地 existingSites
+            if (isUpdate) {
+                const idx = existingSites.findIndex(s => s.id === siteId);
+                if (idx !== -1) {
+                    existingSites[idx] = { ...existingSites[idx], name, url: rawUrl, description, icon, category, is_featured, sort_order };
+                }
+            } else {
+                existingSites.push({ id: siteId, name, url: rawUrl, description, icon, category, is_featured, sort_order });
+            }
+
             const selectedCatText = selectCategory.options[selectCategory.selectedIndex]?.textContent || '已选分类';
-            addView.style.display = 'none';
-            successDesc.textContent = `已成功添加【${name}】至【${selectedCatText}】分类。`;
-            successView.style.display = 'flex';
+            showSuccessView(
+                isUpdate ? '💾 更新成功！' : '🎉 收藏成功！',
+                isUpdate ? `已成功更新【${name}】的站点信息。` : `已成功添加【${name}】至【${selectedCatText}】分类。`,
+                isUpdate ? '💾' : '✓'
+            );
 
-            setTimeout(() => {
-                window.close();
-            }, 1200);
-
+            btnSave.disabled = false;
+            btnSave.innerHTML = '<span>保存到 Dog-Nav</span>';
         } catch (err) {
             showAddError('网络请求失败：' + err.message);
             btnSave.disabled = false;
-            btnSave.innerHTML = '<span>保存到 Dog-Nav</span>';
+            btnSave.innerHTML = `<span>${isUpdate ? '更新此站点' : '保存到 Dog-Nav'}</span>`;
         }
     }
 
@@ -535,6 +715,47 @@
             showLoginView();
         }
     });
+
+    if (btnToggleManage) {
+        btnToggleManage.addEventListener('click', () => {
+            if (manageView && manageView.style.display !== 'none') {
+                showAddView();
+            } else {
+                showManageView();
+            }
+        });
+    }
+
+    if (btnBackFromManage) {
+        btnBackFromManage.addEventListener('click', showAddView);
+    }
+
+    if (btnSuccessManage) {
+        btnSuccessManage.addEventListener('click', showManageView);
+    }
+
+    if (manageSearchInput) {
+        manageSearchInput.addEventListener('input', (e) => {
+            renderManageList(e.target.value);
+        });
+    }
+
+    if (btnDeleteCurrent) {
+        btnDeleteCurrent.addEventListener('click', async () => {
+            if (!currentMatchedSite) return;
+            btnDeleteCurrent.disabled = true;
+            btnDeleteCurrent.innerHTML = '<span class="spinner" style="border-color: rgba(220,38,38,0.3); border-top-color: #dc2626;"></span> 删除中...';
+            const ok = await deleteSite(currentMatchedSite.id, currentMatchedSite.name);
+            if (ok) {
+                const name = currentMatchedSite.name;
+                currentMatchedSite = null;
+                showSuccessView('🗑️ 删除成功！', `站点【${name}】已从导航站中彻底移除。`, '🗑️');
+            } else {
+                btnDeleteCurrent.disabled = false;
+                btnDeleteCurrent.innerHTML = '🗑️ 删除此网址';
+            }
+        });
+    }
 
     btnRefetch.addEventListener('click', () => {
         fetchPageInfo(inputUrl.value.trim(), true, true);

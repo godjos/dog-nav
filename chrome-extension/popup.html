@@ -14,7 +14,10 @@
                 <img src="icons/icon48.png" alt="logo" class="logo-img">
                 <span class="brand-title">Dog-Nav 快速收藏</span>
             </div>
-            <button type="button" class="btn-icon" id="btnToggleSettings" title="设置 / 切换服务器">⚙️</button>
+            <div class="header-btns">
+                <button type="button" class="btn-icon" id="btnToggleManage" title="搜索与管理已收录站点">🔍 管理</button>
+                <button type="button" class="btn-icon" id="btnToggleSettings" title="设置 / 切换服务器">⚙️</button>
+            </div>
         </header>
 
         <!-- 首次配置 / 登录视图 -->
@@ -109,19 +112,38 @@
             </div>
 
             <div class="footer-actions">
-                <button type="button" class="btn-cancel" id="btnCancel">取消 (Esc)</button>
+                <div class="footer-left" style="display: flex; gap: 8px; align-items: center;">
+                    <button type="button" class="btn-cancel" id="btnCancel">取消 (Esc)</button>
+                    <button type="button" class="btn-danger" id="btnDeleteCurrent" style="display: none;">🗑️ 删除此网址</button>
+                </div>
                 <button type="button" class="btn-primary" id="btnSave">
-                    <span>保存到 Dog-Nav</span>
+                    <span id="btnSaveText">保存到 Dog-Nav</span>
                 </button>
             </div>
         </div>
 
+        <!-- 站点管理与搜索删除视图 -->
+        <div id="manageView" class="view" style="display: none;">
+            <div class="manage-search-bar">
+                <input type="text" id="manageSearchInput" class="manage-search-input" placeholder="🔍 快速搜索站点名称、网址或分类...">
+                <button type="button" class="btn-sub" id="btnBackFromManage">返回添加</button>
+            </div>
+            <div class="manage-info-row">
+                <span id="manageStats" class="manage-stats">共 0 个站点</span>
+                <span class="manage-hint">点击 🗑️ 快速删除，点击 ✏️ 编辑</span>
+            </div>
+            <div id="manageSiteList" class="manage-site-list"></div>
+        </div>
+
         <!-- 成功状态视图 -->
         <div id="successView" class="view success-view" style="display: none;">
-            <div class="success-icon">✓</div>
-            <h2>收藏成功！</h2>
-            <p id="successDesc">已成功添加至导航站。</p>
-            <button type="button" class="btn-sub" id="btnClose">立即关闭</button>
+            <div class="success-icon" id="successIcon">✓</div>
+            <h2 id="successTitle">操作成功！</h2>
+            <p id="successDesc">已成功同步至导航站。</p>
+            <div class="success-actions" style="display: flex; gap: 8px; margin-top: 6px;">
+                <button type="button" class="btn-sub" id="btnSuccessManage">管理已收录</button>
+                <button type="button" class="btn-primary" id="btnClose">立即关闭</button>
+            </div>
         </div>
     </div>
 
