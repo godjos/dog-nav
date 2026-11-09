@@ -83,6 +83,12 @@
     }
 
     async function requireLogin() {
+        if (!sessionStorage.getItem('admin_token') && localStorage.getItem('admin_token')) {
+            sessionStorage.setItem('admin_token', localStorage.getItem('admin_token'));
+            sessionStorage.setItem('admin_logged_in', localStorage.getItem('admin_logged_in') || 'true');
+            if (localStorage.getItem('dognav-role')) sessionStorage.setItem('dognav-role', localStorage.getItem('dognav-role'));
+            if (localStorage.getItem('dognav-username')) sessionStorage.setItem('dognav-username', localStorage.getItem('dognav-username'));
+        }
         const token = sessionStorage.getItem('admin_token');
         if (!sessionStorage.getItem('admin_logged_in') || !token) {
             window.location.href = '/admin';
@@ -128,6 +134,12 @@
         sessionStorage.removeItem('admin_must_change');
         sessionStorage.removeItem('dognav-role');
         sessionStorage.removeItem('dognav-username');
+        try {
+            localStorage.removeItem('admin_logged_in');
+            localStorage.removeItem('admin_token');
+            localStorage.removeItem('admin_role');
+            localStorage.removeItem('admin_username');
+        } catch (e) {}
     }
 
     function logout() {

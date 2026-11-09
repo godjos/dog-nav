@@ -141,7 +141,9 @@
 
             <div class="toolbar">
                 <button class="btn-add" id="addSiteBtn">+ 添加网站</button>
+                <button class="btn-add" id="batchAddBtn" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);" title="批量粘贴网址或文本自动解析导入">📋 批量添加</button>
                 <button class="btn-add" id="repairIconsBtn" data-role="admin" title="重新抓取空图标、外链/失效图标的站点 favicon">🔧 修复网站图标</button>
+                <button class="btn-add" id="bookmarkletBtn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);" title="获取浏览器一键收藏书签">⚡ 一键收藏小书签</button>
                 <input type="text" class="search-box" id="searchBox" placeholder="搜索网站名称或描述...">
                 <select class="category-filter" id="categoryFilter">
                     <option value="">全部分类</option>
@@ -199,6 +201,89 @@
                     <button type="submit" class="btn-save">保存</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ═══ BOOKMARKLET MODAL ═══ -->
+    <div class="modal-overlay" id="bookmarkletOverlay">
+        <div class="modal" style="max-width: 520px;">
+            <h2>⚡ 浏览器一键收藏小书签</h2>
+            <p style="color: #666; font-size: 13.5px; margin: 12px 0 16px; line-height: 1.6;">
+                无需安装任何浏览器扩展插件！只要将下方按钮<b>直接拖动到浏览器书签栏</b>。今后在任何网站浏览时，点击该书签即可弹窗一键收藏到当前导航站。
+            </p>
+            <div style="text-align: center; margin: 16px 0 20px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 2px dashed #667eea;">
+                <a id="bookmarkletLink" href="#" draggable="true" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; text-decoration: none; font-weight: bold; cursor: grab; font-size: 14.5px; box-shadow: 0 4px 12px rgba(102,126,234,0.35);">
+                    📌 收藏到 Dog-Nav
+                </a>
+                <div style="font-size: 12px; color: #718096; margin-top: 10px;">
+                    👆 鼠标按住上方按钮，拖拽到浏览器书签栏（按 Ctrl/Cmd+Shift+B 开启书签栏）
+                </div>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="font-weight: 600; font-size: 13px; color: #4a5568; display: block; margin-bottom: 6px;">
+                    手动添加或手机端代码：
+                </label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="bookmarkletCode" readonly style="font-family: monospace; font-size: 12px; background: #f8fafc;">
+                    <button type="button" id="copyBookmarkletBtn" class="btn-edit" style="white-space: nowrap; padding: 8px 16px;">复制脚本</button>
+                </div>
+                <div style="font-size: 12px; color: #a0aec0; margin-top: 6px;">
+                    在手机端可先随意收藏一个网页，再将网址替换为上方代码即可。
+                </div>
+            </div>
+            <div class="modal-actions" style="justify-content: flex-end;">
+                <button type="button" class="btn-cancel" id="bookmarkletCancelBtn">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ BATCH ADD MODAL ═══ -->
+    <div class="modal-overlay" id="batchAddOverlay">
+        <div class="modal" style="max-width: 640px; width: 95%;">
+            <h2>📋 批量导入网站</h2>
+            <p style="color: #666; font-size: 13.5px; margin: 10px 0 14px; line-height: 1.5;">
+                支持直接粘贴多行文本、Markdown、文档或聊天记录。系统将自动用正则提取所有网址，并发探测网页标题与高分辨率官方图标。
+            </p>
+            <div id="batchInputStep">
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>归属分类（作为默认分类）</label>
+                    <select id="batchCategorySelect"></select>
+                </div>
+                <div class="form-group">
+                    <label>粘贴内容（一行一个网址，或包含链接的 Markdown / 纯文本）</label>
+                    <textarea id="batchTextarea" style="min-height: 140px; font-family: monospace; font-size: 13px;" placeholder="https://github.com/&#10;https://v2ex.com/ 创意工作者社区&#10;[Hacker News](https://news.ycombinator.com/)"></textarea>
+                </div>
+                <div class="modal-actions" style="margin-top: 16px;">
+                    <button type="button" class="btn-cancel" id="batchCancelBtn">取消</button>
+                    <button type="button" class="btn-save" id="btnStartBatchParse" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+                        <span>🔍 开始解析与抓取</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="batchPreviewStep" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 13px; color: #4a5568;" id="batchPreviewSummary">已解析 0 个网址</span>
+                    <span style="font-size: 12px; color: #718096;" id="batchParseProgress"></span>
+                </div>
+                <div style="max-height: 280px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
+                            <tr>
+                                <th style="padding: 6px 10px; width: 36px; text-align: center;"><input type="checkbox" id="batchSelectAll" checked></th>
+                                <th style="padding: 6px 10px; width: 44px; text-align: center;">图标</th>
+                                <th style="padding: 6px 10px; width: 140px;">名称</th>
+                                <th style="padding: 6px 10px;">URL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="batchPreviewTbody"></tbody>
+                    </table>
+                </div>
+                <div class="modal-actions" style="justify-content: space-between;">
+                    <button type="button" class="btn-cancel" id="btnBatchBack">← 返回修改</button>
+                    <button type="button" class="btn-save" id="btnConfirmBatchSave">确认批量入库</button>
+                </div>
+            </div>
         </div>
     </div>
 

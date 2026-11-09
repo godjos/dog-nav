@@ -386,6 +386,226 @@
         document.getElementById('fetchDescBtn').addEventListener('click', fetchDesc);
         document.getElementById('fetchIconBtn').addEventListener('click', fetchIcon);
         document.getElementById('siteCancelBtn').addEventListener('click', closeModal);
+
+        // ═══ Bookmarklet 快速收藏小书签 ═══
+        const bookmarkletBtn = document.getElementById('bookmarkletBtn');
+        const bookmarkletOverlay = document.getElementById('bookmarkletOverlay');
+        const bookmarkletLink = document.getElementById('bookmarkletLink');
+        const bookmarkletCode = document.getElementById('bookmarkletCode');
+        const copyBookmarkletBtn = document.getElementById('copyBookmarkletBtn');
+        const bookmarkletCancelBtn = document.getElementById('bookmarkletCancelBtn');
+
+        function generateBookmarklet() {
+            const origin = window.location.origin;
+            const code = `javascript:(function(){var u=location.href,t=document.title||'',d=window.getSelection?window.getSelection().toString().trim().slice(0,200):'';var target='${origin}/quick-add.html?url='+encodeURIComponent(u)+'&title='+encodeURIComponent(t)+'&desc='+encodeURIComponent(d);var w=500,h=640,l=(window.screen.width-w)/2,tp=(window.screen.height-h)/2;window.open(target,'dognav_quick_add','width='+w+',height='+h+',top='+tp+',left='+l+',toolbar=no,menubar=no,scrollbars=yes,resizable=yes');})();`;
+            if (bookmarkletLink) bookmarkletLink.href = code;
+            if (bookmarkletCode) bookmarkletCode.value = code;
+        }
+
+        if (bookmarkletBtn) {
+            bookmarkletBtn.addEventListener('click', () => {
+                generateBookmarklet();
+                bookmarkletOverlay.classList.add('show');
+            });
+        }
+
+        if (bookmarkletCancelBtn) {
+            bookmarkletCancelBtn.addEventListener('click', () => {
+                bookmarkletOverlay.classList.remove('show');
+            });
+        }
+
+        if (bookmarkletOverlay) {
+            bookmarkletOverlay.addEventListener('click', (e) => {
+                if (e.target === bookmarkletOverlay) bookmarkletOverlay.classList.remove('show');
+            });
+        }
+
+        if (copyBookmarkletBtn) {
+            copyBookmarkletBtn.addEventListener('click', async () => {
+                if (!bookmarkletCode) return;
+                try {
+                    await navigator.clipboard.writeText(bookmarkletCode.value);
+                    showToast('已复制 Bookmarklet 脚本代码');
+                } catch (e) {
+                    bookmarkletCode.select();
+                    document.execCommand('copy');
+                    showToast('已复制 Bookmarklet 脚本代码');
+                }
+            });
+        }
+
+        // ═══ 批量添加网站 ═══
+        const batchAddBtn = document.getElementById('batchAddBtn');
+        const batchAddOverlay = document.getElementById('batchAddOverlay');
+        const batchCategorySelect = document.getElementById('batchCategorySelect');
+        const batchTextarea = document.getElementById('batchTextarea');
+        const batchCancelBtn = document.getElementById('batchCancelBtn');
+        const btnStartBatchParse = document.getElementById('btnStartBatchParse');
+        const batchInputStep = document.getElementById('batchInputStep');
+        const batchPreviewStep = document.getElementById('batchPreviewStep');
+        const batchPreviewSummary = document.getElementById('batchPreviewSummary');
+        const batchParseProgress = document.getElementById('batchParseProgress');
+        const batchPreviewTbody = document.getElementById('batchPreviewTbody');
+        const batchSelectAll = document.getElementById('batchSelectAll');
+        const btnBatchBack = document.getElementById('btnBatchBack');
+        const btnConfirmBatchSave = document.getElementById('btnConfirmBatchSave');
+
+        let parsedBatchItems = [];
+
+        function openBatchAddModal() {
+            batchCategorySelect.innerHTML = Object.entries(CATEGORIES).map(([id, name]) =>
+                `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`
+            ).join('');
+            batchTextarea.value = '';
+            batchInputStep.style.display = 'block';
+            batchPreviewStep.style.display = 'none';
+            batchAddOverlay.classList.add('show');
+            batchTextarea.focus();
+        }
+
+        if (batchAddBtn) batchAddBtn.addEventListener('click', openBatchAddModal);
+        if (batchCancelBtn) batchCancelBtn.addEventListener('click', () => batchAddOverlay.classList.remove('show'));
+        if (batchAddOverlay) {
+            batchAddOverlay.addEventListener('click', (e) => {
+                if (e.target === batchAddOverlay) batchAddOverlay.classList.remove('show');
+            });
+        }
+
+        if (btnBatchBack) {
+            btnBatchBack.addEventListener('click', () => {
+                batchInputStep.style.display = 'block';
+                batchPreviewStep.style.display = 'none';
+            });
+        }
+
+        if (batchSelectAll) {
+            batchSelectAll.addEventListener('change', () => {
+                const checked = batchSelectAll.checked;
+                batchPreviewTbody.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = checked);
+            });
+        }
+
+        if (btnStartBatchParse) {
+            btnStartBatchParse.addEventListener('click', async () => {
+                const text = batchTextarea.value;
+                const rawMatches = text.match(/https?:\/\/[^\s)\]>"'<>]+/gi) || [];
+                const urls = Array.from(new Set(rawMatches.map(u => u.replace(/[.,;!?)]+$/, '').trim()))).filter(Boolean);
+                if (urls.length === 0) {
+                    showToast('未在文本中发现有效的 http/https 网址', 'error');
+                    return;
+                }
+
+                batchInputStep.style.display = 'none';
+                batchPreviewStep.style.display = 'block';
+                batchPreviewSummary.textContent = `共识别到 ${urls.length} 个网址，正在解析...`;
+                batchParseProgress.textContent = `0 / ${urls.length}`;
+                btnConfirmBatchSave.disabled = true;
+
+                parsedBatchItems = urls.map(u => {
+                    let fallbackName = '';
+                    try {
+                        const parsed = new URL(u);
+                        fallbackName = parsed.hostname.replace(/^www\./, '');
+                    } catch (e) {
+                        fallbackName = u;
+                    }
+                    return { url: u, name: fallbackName, icon: '🌐', description: '' };
+                });
+
+                renderBatchPreviewRows();
+
+                // 并发分批抓取图标与标题（每批 5 个）
+                let completed = 0;
+                for (let i = 0; i < parsedBatchItems.length; i += 5) {
+                    const batch = parsedBatchItems.slice(i, i + 5);
+                    await Promise.all(batch.map(async (item) => {
+                        try {
+                            const res = await fetch('/api/fetch-icon', {
+                                method: 'POST',
+                                headers: authHeaders(),
+                                body: JSON.stringify({ url: item.url, includeText: true })
+                            });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.title) item.name = data.title;
+                                if (data.icon) item.icon = data.icon;
+                                if (data.description) item.description = data.description;
+                            }
+                        } catch (e) {}
+                        completed++;
+                        batchParseProgress.textContent = `${completed} / ${urls.length}`;
+                    }));
+                    renderBatchPreviewRows();
+                }
+
+                batchPreviewSummary.textContent = `解析完成，共 ${urls.length} 个网址`;
+                btnConfirmBatchSave.disabled = false;
+            });
+        }
+
+        function renderBatchPreviewRows() {
+            batchPreviewTbody.innerHTML = parsedBatchItems.map((item, idx) => {
+                const iconHtml = /^(https?:\/\/|\/|data:)/.test(item.icon)
+                    ? `<img src="${escapeHtml(item.icon)}" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle;">`
+                    : `<span style="font-size: 16px;">${escapeHtml(item.icon || '🌐')}</span>`;
+                return `<tr>
+                    <td style="text-align: center; padding: 6px 10px;"><input type="checkbox" data-idx="${idx}" checked></td>
+                    <td style="text-align: center; padding: 6px 10px;">${iconHtml}</td>
+                    <td style="padding: 6px 10px;"><input type="text" data-field="name" data-idx="${idx}" value="${escapeHtml(item.name)}" style="width: 100%; padding: 4px 6px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;"></td>
+                    <td style="padding: 6px 10px; color: #7c83ff; font-size: 12px; word-break: break-all;">${escapeHtml(item.url)}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        batchPreviewTbody.addEventListener('input', (e) => {
+            const input = e.target;
+            const idx = Number(input.dataset.idx);
+            if (input.dataset.field === 'name' && parsedBatchItems[idx]) {
+                parsedBatchItems[idx].name = input.value;
+            }
+        });
+
+        if (btnConfirmBatchSave) {
+            btnConfirmBatchSave.addEventListener('click', async () => {
+                const selectedCheckboxes = batchPreviewTbody.querySelectorAll('input[type="checkbox"]:checked');
+                const selectedItems = Array.from(selectedCheckboxes).map(cb => parsedBatchItems[Number(cb.dataset.idx)]).filter(Boolean);
+                if (selectedItems.length === 0) {
+                    showToast('请至少勾选一个网站', 'error');
+                    return;
+                }
+
+                const cat = batchCategorySelect.value || 'recommend';
+                setBtnLoading(btnConfirmBatchSave, true, '正在入库...');
+
+                let savedCount = 0;
+                for (let i = 0; i < selectedItems.length; i += 5) {
+                    const batch = selectedItems.slice(i, i + 5);
+                    await Promise.all(batch.map(async (item) => {
+                        try {
+                            const res = await fetch('/api/sites', {
+                                method: 'POST',
+                                headers: authHeaders(),
+                                body: JSON.stringify({
+                                    name: item.name,
+                                    url: item.url,
+                                    icon: item.icon,
+                                    category: cat,
+                                    description: item.description || ''
+                                })
+                            });
+                            if (res.ok) savedCount++;
+                        } catch (e) {}
+                    }));
+                }
+
+                setBtnLoading(btnConfirmBatchSave, false);
+                showToast(`成功导入 ${savedCount} 个网站！`);
+                batchAddOverlay.classList.remove('show');
+                loadSites();
+            });
+        }
+
         document.getElementById('sitesTableBody').addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-action]');
             if (!btn) return;

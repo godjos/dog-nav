@@ -19,6 +19,10 @@
             sessionStorage.removeItem('admin_must_change');
             sessionStorage.removeItem('admin_logged_in');
             sessionStorage.removeItem('admin_token');
+            try {
+                localStorage.removeItem('admin_logged_in');
+                localStorage.removeItem('admin_token');
+            } catch (e) {}
             changeForm.style.display = 'none';
             loginForm.style.display = 'block';
             subtitle.textContent = '管理后台登录';
@@ -51,8 +55,18 @@
                 if (data.success) {
                     sessionStorage.setItem('admin_logged_in', 'true');
                     sessionStorage.setItem('admin_token', data.token);
-                    if (data.user && data.user.role) sessionStorage.setItem('dognav-role', data.user.role);
-                    if (data.user && data.user.username) sessionStorage.setItem('dognav-username', data.user.username);
+                    try {
+                        localStorage.setItem('admin_logged_in', 'true');
+                        localStorage.setItem('admin_token', data.token);
+                    } catch (e) {}
+                    if (data.user && data.user.role) {
+                        sessionStorage.setItem('dognav-role', data.user.role);
+                        try { localStorage.setItem('dognav-role', data.user.role); } catch (e) {}
+                    }
+                    if (data.user && data.user.username) {
+                        sessionStorage.setItem('dognav-username', data.user.username);
+                        try { localStorage.setItem('dognav-username', data.user.username); } catch (e) {}
+                    }
                     if (data.mustChangePassword) {
                         sessionStorage.setItem('admin_must_change', '1');
                         showChangeForm();

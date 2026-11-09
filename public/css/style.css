@@ -648,6 +648,24 @@ body {
     line-height: 1.4;
     user-select: none;
 }
+.sec-quick-add {
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--primary, #667eea);
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.25);
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    line-height: 1.4;
+    transition: all 0.2s ease;
+}
+.sec-quick-add:hover {
+    background: var(--primary, #667eea);
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.35);
+}
 .sec-line { display: none; }
 
 .card-grid {

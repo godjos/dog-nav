@@ -510,6 +510,19 @@ function parseSqliteTime(v) {
     return isNaN(d) ? 0 : d.getTime();
 }
 
+function hasAdminToken() {
+    return !!(sessionStorage.getItem('admin_token') || localStorage.getItem('admin_token'));
+}
+
+function openQuickAdd(category = '') {
+    const w = 500, h = 640;
+    const l = (window.screen.width - w) / 2;
+    const tp = (window.screen.height - h) / 2;
+    const target = '/quick-add.html' + (category ? ('?category=' + encodeURIComponent(category)) : '');
+    const pop = window.open(target, 'dognav_quick_add', `width=${w},height=${h},top=${tp},left=${l},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`);
+    if (pop) pop.focus();
+}
+
 function buildSecHead(icon, label, catId, count) {
     const secHead = document.createElement('div');
     secHead.className = 'sec-head rv';
@@ -530,6 +543,18 @@ function buildSecHead(icon, label, catId, count) {
         secCount.className = 'sec-count';
         secCount.textContent = String(count);
         secHead.appendChild(secCount);
+    }
+    if (catId && hasAdminToken()) {
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'sec-quick-add';
+        addBtn.title = `添加新网址到「${label}」`;
+        addBtn.textContent = '+ 添加';
+        addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openQuickAdd(catId);
+        });
+        secHead.appendChild(addBtn);
     }
     const secLine = document.createElement('div');
     secLine.className = 'sec-line';
@@ -1794,3 +1819,34 @@ document.getElementById('resetDock').addEventListener('click', () => {
     pinned = defaultPinnedIds();
     renderDock();
 });
+
+// ═══ 前台快捷录入支持 (管理员特权) ═══
+(function initQuickAddShortcuts() {
+    const navLi = document.getElementById('navQuickAddLi');
+    if (navLi && hasAdminToken()) navLi.hidden = false;
+    const navBtn = document.getElementById('navQuickAddBtn');
+    if (navBtn) {
+        navBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openQuickAdd();
+        });
+    }
+
+    // 全局快捷键 Ctrl+Shift+A / Cmd+Shift+A
+    window.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+            e.preventDefault();
+            openQuickAdd();
+        }
+    });
+
+    // 监听跨页面新增站点广播，无刷新热重载
+    try {
+        const bc = new BroadcastChannel('dognav_channel');
+        bc.onmessage = (e) => {
+            if (e.data && e.data.type === 'site_added') {
+                loadData();
+            }
+        };
+    } catch (e) {}
+})();
