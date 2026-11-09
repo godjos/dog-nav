@@ -942,6 +942,18 @@ async function readBodyCapped(resp, maxBytes) {
     return new TextDecoder().decode(buf);
 }
 
+const BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+};
+
+const ICON_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+};
+
 // Fetch a page's HTML with the shared protection profile: http/https only,
 // private-host check on every hop, manual redirects ≤3, 8s timeout, 50KB cap.
 // Resolves to { origin, html } or null when the page can't be fetched.
@@ -956,7 +968,7 @@ async function fetchPageHtml(pageUrl) {
         let resp;
         try {
             resp = await fetch(parsed.href, {
-                headers: { 'User-Agent': 'Mozilla/5.0' },
+                headers: BROWSER_HEADERS,
                 redirect: 'manual',
                 signal: AbortSignal.timeout(FETCH_ICON_TIMEOUT_MS),
             });
@@ -981,28 +993,74 @@ async function fetchPageHtml(pageUrl) {
     return { origin: parsed.origin, html };
 }
 
-// Extract { icon, title, description } from page HTML. The icon defaults to
-// <origin>/favicon.ico; relative hrefs resolve against the page origin.
-function parsePageMeta(html, origin) {
-    const iconPatterns = [
-        /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
-        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
-        /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
-        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
-    ];
-    let icon = origin + '/favicon.ico';
-    for (const pat of iconPatterns) {
-        const m = html.match(pat);
-        if (m && m[1]) {
-            let ico = m[1].trim();
-            if (ico.startsWith('data:')) { icon = ico; break; }
-            if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
-            if (ico.startsWith('/')) { icon = origin + ico; break; }
-            if (ico.startsWith('http')) { icon = ico; break; }
-            icon = origin + '/' + ico;
-            break;
+function extractIconCandidates(html, origin) {
+    const candidates = [];
+    const linkTags = html.match(/<link\b[^>]*>/gi) || [];
+    for (const tag of linkTags) {
+        const relMatch = tag.match(/\brel=["']?([^"'>\s]+(?:\s+[^"'>\s]+)*)["']?/i);
+        if (!relMatch) continue;
+        const rel = relMatch[1].toLowerCase();
+        if (!rel.includes('icon')) continue;
+
+        const hrefMatch = tag.match(/\bhref=["']?([^"'>\s]+)["']?/i);
+        if (!hrefMatch || !hrefMatch[1]) continue;
+
+        const rawHref = hrefMatch[1].trim();
+        if (!rawHref) continue;
+
+        let fullUrl = '';
+        if (rawHref.startsWith('data:')) {
+            fullUrl = rawHref;
+        } else if (rawHref.startsWith('//')) {
+            fullUrl = 'https:' + rawHref;
+        } else if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+            fullUrl = rawHref;
+        } else if (rawHref.startsWith('/')) {
+            fullUrl = origin + rawHref;
+        } else {
+            fullUrl = origin + '/' + rawHref.replace(/^\.\//, '');
+        }
+
+        let score = 50;
+        const lowerUrl = fullUrl.toLowerCase();
+        const typeMatch = tag.match(/\btype=["']?([^"'>\s]+)["']?/i);
+        const mime = typeMatch ? typeMatch[1].toLowerCase() : '';
+        const sizesMatch = tag.match(/\bsizes=["']?([^"'>\s]+)["']?/i);
+        const sizes = sizesMatch ? sizesMatch[1].toLowerCase() : '';
+
+        if (rel.includes('apple-touch-icon')) {
+            score = 100;
+        } else if (mime === 'image/svg+xml' || lowerUrl.endsWith('.svg')) {
+            score = 90;
+        } else if (sizes && /\d{2,3}x\d{2,3}/.test(sizes)) {
+            const dim = parseInt(sizes, 10);
+            score = dim >= 64 ? 85 : 75;
+        } else if (mime === 'image/png' || lowerUrl.endsWith('.png') || mime === 'image/webp' || lowerUrl.endsWith('.webp')) {
+            score = 70;
+        } else if (rel.includes('shortcut') || lowerUrl.endsWith('.ico')) {
+            score = 30;
+        }
+
+        candidates.push({ url: fullUrl, score });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    const result = [];
+    for (const c of candidates) {
+        if (!seen.has(c.url)) {
+            seen.add(c.url);
+            result.push(c.url);
         }
     }
+    return result;
+}
+
+// Extract { icon, icons, title, description } from page HTML. The icon defaults to
+// <origin>/favicon.ico; relative hrefs resolve against the page origin.
+function parsePageMeta(html, origin) {
+    const icons = extractIconCandidates(html, origin);
+    const icon = icons.length > 0 ? icons[0] : (origin + '/favicon.ico');
 
     const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
     const title = titleMatch ? titleMatch[1].trim() : '';
@@ -1019,7 +1077,7 @@ function parsePageMeta(html, origin) {
         if (m && m[1]) { description = m[1].trim(); break; }
     }
 
-    return { icon, title, description };
+    return { icon, icons, title, description };
 }
 
 // Only the admin UI calls this endpoint (public/admin/js/*), so it requires
@@ -1033,13 +1091,10 @@ app.get('/api/fetch-icon', requireAuth, async (c) => {
         const page = await fetchPageHtml(url);
         if (!page) return c.json({ icon: '', title: '', description: '' });
         const meta = parsePageMeta(page.html, page.origin);
-        // Localize the icon as a data URI so the frontend doesn't depend on third-party servers.
-        // If the remote icon can't be fetched (404, timeout, etc.), drop it —
-        // storing a dead URL would leave the frontend on its fallback forever.
-        if (meta.icon.startsWith('http')) {
-            const dataUri = await fetchIconAsDataUri(meta.icon);
-            meta.icon = dataUri || '';
-        }
+        const candidateList = meta.icons && meta.icons.length ? meta.icons : (meta.icon ? [meta.icon] : []);
+        const dataUri = await resolveAndDownloadFaviconDataUri(url, candidateList);
+        meta.icon = dataUri || '';
+        delete meta.icons;
         return c.json(meta);
     } catch (err) {
         return c.json({ icon: '', title: '', description: '' });
@@ -1060,18 +1115,41 @@ function bufToBase64(buf) {
     return btoa(bin);
 }
 
+function isSafeSvgStr(str) {
+    if (!str || str.length > 500 * 1024) return false;
+    if (!/<svg\b[^>]*>/i.test(str) || !/<\/svg>/i.test(str)) return false;
+    const dangerousPatterns = [
+        /<script\b/i, /<\/script>/i, /<foreignObject\b/i, /<iframe\b/i,
+        /<embed\b/i, /<object\b/i, /\bhref=["']?\s*javascript:/i,
+        /\bxlink:href=["']?\s*javascript:/i, /\bdata:text\/html/i,
+        /\bon\w+\s*=/i, /<!ENTITY/i, /SYSTEM\s+["']/i
+    ];
+    for (const pat of dangerousPatterns) {
+        if (pat.test(str)) return false;
+    }
+    return true;
+}
+
 // Download a remote icon and return it as a data URI (or null on failure)
 async function fetchIconAsDataUri(iconUrl) {
     try {
         if (!iconUrl.startsWith('http')) return null;
+        let parsed;
+        try { parsed = new URL(iconUrl); } catch { return null; }
+        if (isPrivateHostSync(parsed.hostname)) return null;
+
         const resp = await fetch(iconUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': new URL(iconUrl).origin + '/' },
+            headers: {
+                ...ICON_HEADERS,
+                'Referer': parsed.origin + '/'
+            },
             redirect: 'follow',
+            signal: AbortSignal.timeout(6000),
         });
         if (!resp.ok) return null;
         let mime = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         if (!mime.startsWith('image/')) {
-            const p = new URL(iconUrl).pathname.toLowerCase();
+            const p = parsed.pathname.toLowerCase();
             if (p.endsWith('.ico')) mime = 'image/x-icon';
             else if (p.endsWith('.svg')) mime = 'image/svg+xml';
             else if (p.endsWith('.png')) mime = 'image/png';
@@ -1081,9 +1159,55 @@ async function fetchIconAsDataUri(iconUrl) {
             else return null;
         }
         const buf = await resp.arrayBuffer();
-        if (!buf.byteLength || buf.byteLength > 32 * 1024) return null;
+        if (!buf.byteLength || buf.byteLength > 64 * 1024) return null;
+        if (mime === 'image/svg+xml') {
+            const dec = new TextDecoder('utf-8');
+            if (!isSafeSvgStr(dec.decode(buf))) return null;
+        }
         return `data:${mime};base64,${bufToBase64(buf)}`;
     } catch { return null; }
+}
+
+async function resolveAndDownloadFaviconDataUri(siteUrl, pageCandidates = []) {
+    let parsed;
+    try { parsed = new URL(siteUrl); } catch { return null; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (isPrivateHostSync(parsed.hostname)) return null;
+
+    const origin = parsed.origin;
+    const hostname = parsed.hostname;
+
+    const candidates = [];
+    for (const c of pageCandidates) {
+        if (c && typeof c === 'string' && c.startsWith('http')) {
+            candidates.push(c);
+        }
+    }
+    candidates.push(`${origin}/favicon.ico`);
+    candidates.push(`${origin}/apple-touch-icon.png`);
+    candidates.push(`${origin}/favicon.png`);
+
+    const isTestDomain = hostname.endsWith('.example') || hostname.endsWith('.test') ||
+                         hostname.endsWith('.invalid') || hostname.endsWith('.localhost') ||
+                         /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+    if (!isTestDomain) {
+        candidates.push(`https://icons.duckduckgo.com/ip3/${encodeURIComponent(hostname)}.ico`);
+        candidates.push(`https://api.xinac.net/icon/?url=${encodeURIComponent(hostname)}`);
+        candidates.push(`https://icon.horse/icon/${encodeURIComponent(hostname)}`);
+    }
+
+    const unique = [...new Set(candidates)];
+    for (const cand of unique) {
+        try {
+            const candUrl = new URL(cand);
+            if (isPrivateHostSync(candUrl.hostname)) continue;
+            const dataUri = await fetchIconAsDataUri(cand);
+            if (dataUri) return dataUri;
+        } catch {
+            continue;
+        }
+    }
+    return null;
 }
 
 // One-off repair: localize all externally hosted icons in sites/links
@@ -1126,15 +1250,21 @@ function isRepairableIcon(icon) {
 // redirects, type/size caps and the per-hop SSRF guard are identical to
 // /api/fetch-icon. Resolves to the data URI ('' when nothing could be stored).
 async function fetchRepairedIconDataUri(pageUrl) {
+    let origin;
+    try {
+        const parsed = new URL(pageUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+        if (isPrivateHostSync(parsed.hostname)) return '';
+        origin = parsed.origin;
+    } catch { return ''; }
+
     const page = await fetchPageHtml(pageUrl);
-    if (!page) return '';
-    const meta = parsePageMeta(page.html, page.origin);
-    let icon = meta.icon || '';
-    if (icon.startsWith('http')) {
-        // 抓取失败说明远程图标不可用，置空而不是留死链
-        icon = await fetchIconAsDataUri(icon) || '';
+    let candidateList = [];
+    if (page) {
+        const meta = parsePageMeta(page.html, page.origin);
+        candidateList = meta.icons && meta.icons.length ? meta.icons : (meta.icon ? [meta.icon] : []);
     }
-    return icon;
+    return await resolveAndDownloadFaviconDataUri(pageUrl, candidateList) || '';
 }
 
 const ICON_REPAIR_BATCH_MAX = 5;
@@ -1145,7 +1275,9 @@ const ICON_REPAIR_BATCH_MAX = 5;
 // keeps the frontend letter fallback.
 app.post('/api/admin/repair-icons', requireAdmin, async (c) => {
     try {
-        const { siteIds } = await c.req.json().catch(() => ({}));
+        const body = await c.req.json().catch(() => ({}));
+        const { siteIds } = body;
+        const includeText = Boolean(body.includeText);
         if (!Array.isArray(siteIds) || siteIds.length === 0) {
             return c.json({ error: 'siteIds must be a non-empty array' }, 400);
         }
@@ -1167,7 +1299,7 @@ app.post('/api/admin/repair-icons', requireAdmin, async (c) => {
                 continue;
             }
             const oldIcon = site.icon || '';
-            if (!isRepairableIcon(oldIcon)) {
+            if (!includeText && !isRepairableIcon(oldIcon)) {
                 results.push({ id, status: 'skipped', icon: oldIcon, reason: 'text_icon' });
                 summary.skipped++;
                 continue;

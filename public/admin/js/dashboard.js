@@ -211,12 +211,30 @@
         async function repairIcons() {
             const btn = document.getElementById('repairIconsBtn');
             if (btn.disabled) return; // 执行期间禁止重复启动
-            const targets = allSites.filter(s => isRepairableIcon(s.icon));
+            let includeText = false;
+            let targets = allSites.filter(s => isRepairableIcon(s.icon));
             if (targets.length === 0) {
-                showToast('没有需要修复的图标');
-                return;
+                const textSites = allSites.filter(s => !isRepairableIcon(s.icon));
+                if (textSites.length > 0) {
+                    if (confirm(`当前所有站点（${textSites.length} 个）均使用 Emoji 或文字图标。\n是否联网抓取并升级为网站官方高清图标？\n（抓取失败的站点将自动保留原 Emoji）`)) {
+                        targets = textSites;
+                        includeText = true;
+                    } else {
+                        return;
+                    }
+                } else {
+                    showToast('没有需要修复的图标');
+                    return;
+                }
+            } else {
+                const textSites = allSites.filter(s => !isRepairableIcon(s.icon));
+                if (textSites.length > 0 && confirm(`发现 ${targets.length} 个空/失效/外链图标，以及 ${textSites.length} 个 Emoji 图标。\n是否同时抓取并将 Emoji 图标升级为官方图标？\n点击「确定」升级全部；点击「取消」仅修复失效与外链图标。`)) {
+                    targets = allSites;
+                    includeText = true;
+                } else if (!confirm(`将对 ${targets.length} 个站点重新抓取图标：\n空图标、外链/失效图标会重新访问站点抓取 favicon；emoji/文本图标自动跳过；抓取失败的站点保留原图标。\n\n确定继续？`)) {
+                    return;
+                }
             }
-            if (!confirm(`将对 ${targets.length} 个站点重新抓取图标：\n空图标、外链/失效图标会重新访问站点抓取 favicon；emoji/文本图标自动跳过；抓取失败的站点保留原图标。\n\n确定继续？`)) return;
 
             const wrap = document.getElementById('repairProgressWrap');
             const fill = document.getElementById('repairProgressFill');
@@ -242,7 +260,7 @@
                     const res = await fetch('/api/admin/repair-icons', {
                         method: 'POST',
                         headers: authHeaders(),
-                        body: JSON.stringify({ siteIds: batch.map(s => s.id) })
+                        body: JSON.stringify({ siteIds: batch.map(s => s.id), includeText })
                     });
                     if (!res.ok) {
                         const data = await res.json().catch(() => ({}));

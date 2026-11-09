@@ -100,7 +100,14 @@ app.use((req, res, next) => {
 app.use('/api/import', express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOAD_DIR, {
+    setHeaders: (res, filePath) => {
+        if (filePath && filePath.endsWith('.svg')) {
+            res.setHeader('Content-Security-Policy', "default-src 'none'");
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+        }
+    }
+}));
 
 // Save database to file
 function saveDb() {
@@ -1827,26 +1834,51 @@ app.delete('/api/links/:id', requireAuth, (req, res) => {
 });
 
 // ═══════════════════════════════════════════
-// FETCH ICON API
+// FETCH ICON API & SCRAPER
 // ═══════════════════════════════════════════
 
 const https = require('https');
 const http = require('http');
+
+const BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+};
+
+const ICON_REQUEST_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+};
 
 app.get('/api/fetch-icon', requireAuth, async (req, res) => {
     const url = req.query.url;
     if (!url) return res.status(400).json({ error: 'Missing url parameter' });
 
     try {
-        const origin = new URL(url).origin;
-        const meta = await fetchPageMeta(url, origin);
-        // Localize the icon so the frontend doesn't depend on third-party servers.
-        // If the remote icon can't be downloaded (404, timeout, etc.), drop it —
-        // storing a dead URL would leave the frontend on its fallback forever.
-        if (meta.icon && meta.icon.startsWith('http')) {
-            const localPath = await downloadIcon(meta.icon);
-            meta.icon = localPath || '';
+        let origin;
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return res.json({ icon: '', title: '', description: '' });
+            }
+            if (await isPrivateHost(parsed.hostname)) {
+                return res.json({ icon: '', title: '', description: '' });
+            }
+            origin = parsed.origin;
+        } catch {
+            return res.json({ icon: '', title: '', description: '' });
         }
+
+        const meta = await fetchPageMeta(url, origin);
+        // Cascade favicon resolution: tries page candidates, origin paths, and mirrors
+        const candidateList = meta.icons && meta.icons.length ? meta.icons : (meta.icon ? [meta.icon] : []);
+        const localPath = await resolveAndDownloadFavicon(url, candidateList);
+        meta.icon = localPath || '';
+        delete meta.icons;
         res.json(meta);
     } catch (err) {
         res.json({ icon: '', title: '', description: '' });
@@ -1856,7 +1888,7 @@ app.get('/api/fetch-icon', requireAuth, async (req, res) => {
 const FETCH_ICON_MAX_REDIRECTS = 3;
 
 function emptyMeta(origin) {
-    return { icon: (origin || '') + '/favicon.ico', title: '', description: '' };
+    return { icon: (origin || '') + '/favicon.ico', icons: [], title: '', description: '' };
 }
 
 // Fetch a page's icon/title/description, following redirects manually.
@@ -1889,7 +1921,7 @@ function fetchPageMetaOnce(pageUrl, origin) {
         const mod = pageUrl.startsWith('https') ? https : http;
         let req;
         try {
-            req = mod.get(pageUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (resp) => {
+            req = mod.get(pageUrl, { timeout: 8000, headers: BROWSER_HEADERS }, (resp) => {
                 if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
                     resp.resume();
                     let next;
@@ -1899,7 +1931,7 @@ function fetchPageMetaOnce(pageUrl, origin) {
                 let html = '';
                 resp.on('data', chunk => {
                     html += chunk;
-                    if (html.length > 50000) { resp.destroy(); resolve({ meta: parseMeta(html, origin) }); }
+                    if (html.length > 80000) { resp.destroy(); resolve({ meta: parseMeta(html, origin) }); }
                 });
                 resp.on('end', () => resolve({ meta: parseMeta(html, origin) }));
                 resp.on('error', fallback);
@@ -1910,27 +1942,72 @@ function fetchPageMetaOnce(pageUrl, origin) {
     });
 }
 
-function parseMeta(html, origin) {
-    // Extract icon
-    const iconPatterns = [
-        /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/i,
-        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut )?icon["']/i,
-        /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
-        /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
-    ];
-    let icon = origin + '/favicon.ico';
-    for (const pat of iconPatterns) {
-        const m = html.match(pat);
-        if (m && m[1]) {
-            let ico = m[1].trim();
-            if (ico.startsWith('data:')) { icon = ico; break; }
-            if (ico.startsWith('//')) { icon = 'https:' + ico; break; }
-            if (ico.startsWith('/')) { icon = origin + ico; break; }
-            if (ico.startsWith('http')) { icon = ico; break; }
-            icon = origin + '/' + ico;
-            break;
+function extractIconCandidates(html, origin) {
+    const candidates = [];
+    const linkTags = html.match(/<link\b[^>]*>/gi) || [];
+    for (const tag of linkTags) {
+        const relMatch = tag.match(/\brel=["']?([^"'>\s]+(?:\s+[^"'>\s]+)*)["']?/i);
+        if (!relMatch) continue;
+        const rel = relMatch[1].toLowerCase();
+        if (!rel.includes('icon')) continue;
+
+        const hrefMatch = tag.match(/\bhref=["']?([^"'>\s]+)["']?/i);
+        if (!hrefMatch || !hrefMatch[1]) continue;
+
+        const rawHref = hrefMatch[1].trim();
+        if (!rawHref) continue;
+
+        let fullUrl = '';
+        if (rawHref.startsWith('data:')) {
+            fullUrl = rawHref;
+        } else if (rawHref.startsWith('//')) {
+            fullUrl = 'https:' + rawHref;
+        } else if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+            fullUrl = rawHref;
+        } else if (rawHref.startsWith('/')) {
+            fullUrl = origin + rawHref;
+        } else {
+            fullUrl = origin + '/' + rawHref.replace(/^\.\//, '');
+        }
+
+        let score = 50;
+        const lowerUrl = fullUrl.toLowerCase();
+        const typeMatch = tag.match(/\btype=["']?([^"'>\s]+)["']?/i);
+        const mime = typeMatch ? typeMatch[1].toLowerCase() : '';
+        const sizesMatch = tag.match(/\bsizes=["']?([^"'>\s]+)["']?/i);
+        const sizes = sizesMatch ? sizesMatch[1].toLowerCase() : '';
+
+        if (rel.includes('apple-touch-icon')) {
+            score = 100;
+        } else if (mime === 'image/svg+xml' || lowerUrl.endsWith('.svg')) {
+            score = 90;
+        } else if (sizes && /\d{2,3}x\d{2,3}/.test(sizes)) {
+            const dim = parseInt(sizes, 10);
+            score = dim >= 64 ? 85 : 75;
+        } else if (mime === 'image/png' || lowerUrl.endsWith('.png') || mime === 'image/webp' || lowerUrl.endsWith('.webp')) {
+            score = 70;
+        } else if (rel.includes('shortcut') || lowerUrl.endsWith('.ico')) {
+            score = 30;
+        }
+
+        candidates.push({ url: fullUrl, score });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    const result = [];
+    for (const c of candidates) {
+        if (!seen.has(c.url)) {
+            seen.add(c.url);
+            result.push(c.url);
         }
     }
+    return result;
+}
+
+function parseMeta(html, origin) {
+    const icons = extractIconCandidates(html, origin);
+    const icon = icons.length > 0 ? icons[0] : (origin + '/favicon.ico');
 
     // Extract title
     const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
@@ -1949,7 +2026,7 @@ function parseMeta(html, origin) {
         if (m && m[1]) { description = m[1].trim(); break; }
     }
 
-    return { icon, title, description };
+    return { icon, icons, title, description };
 }
 
 // ═══════════════════════════════════════════
@@ -1967,11 +2044,44 @@ const ICON_EXT_BY_MIME = {
     'image/jpeg': '.jpg',
     'image/gif': '.gif',
     'image/webp': '.webp',
-    // SVG deliberately excluded: a hostile SVG can carry scripts and would be
-    // served same-origin from /uploads/icons (stored XSS).
+    'image/svg+xml': '.svg',
     'image/x-icon': '.ico',
     'image/vnd.microsoft.icon': '.ico',
 };
+
+// Safe SVG sanitizer: validates basic SVG tags and rejects dangerous elements/scripts.
+function isSafeSvg(buffer) {
+    if (!buffer || buffer.length === 0 || buffer.length > 500 * 1024) return false;
+    const str = buffer.toString('utf8');
+    if (!/<svg\b[^>]*>/i.test(str) || !/<\/svg>/i.test(str)) return false;
+    const dangerousPatterns = [
+        /<script\b/i, /<\/script>/i, /<foreignObject\b/i, /<iframe\b/i,
+        /<embed\b/i, /<object\b/i, /\bhref=["']?\s*javascript:/i,
+        /\bxlink:href=["']?\s*javascript:/i, /\bdata:text\/html/i,
+        /\bon\w+\s*=/i, /<!ENTITY/i, /SYSTEM\s+["']/i
+    ];
+    for (const pat of dangerousPatterns) {
+        if (pat.test(str)) return false;
+    }
+    return true;
+}
+
+// Magic bytes validation to reject HTML/text disguised as images or corrupted files
+function isValidIconBuffer(buf, ext) {
+    if (!buf || buf.length < 4) return false;
+    const head = buf.slice(0, 64).toString('utf8').trim().toLowerCase();
+    if (head.startsWith('<!doctype') || head.startsWith('<html')) return false;
+    if (ext === '.svg') return isSafeSvg(buf);
+    if (ext === '.png') return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    if (ext === '.jpg') return buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    if (ext === '.gif') return buf.slice(0, 4).toString('ascii') === 'GIF8';
+    if (ext === '.ico') {
+        return (buf[0] === 0x00 && buf[1] === 0x00 && (buf[2] === 0x01 || buf[2] === 0x02) && buf[3] === 0x00)
+            || (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47);
+    }
+    if (ext === '.webp') return buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
+    return true;
+}
 
 // Download a remote icon into uploads/icons, return local path (or null on failure)
 async function downloadIcon(iconUrl, redirects = 0) {
@@ -1987,7 +2097,13 @@ async function downloadIcon(iconUrl, redirects = 0) {
         let referer;
         try { referer = new URL(iconUrl).origin + '/'; } catch { return resolve(null); }
         const mod = iconUrl.startsWith('https') ? https : http;
-        const req = mod.get(iconUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': referer } }, (resp) => {
+        const req = mod.get(iconUrl, {
+            timeout: 6000,
+            headers: {
+                ...ICON_REQUEST_HEADERS,
+                'Referer': referer
+            }
+        }, (resp) => {
             if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
                 resp.resume();
                 let next;
@@ -1998,9 +2114,13 @@ async function downloadIcon(iconUrl, redirects = 0) {
             const mime = (resp.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
             let ext = ICON_EXT_BY_MIME[mime];
             if (!ext) {
+                if (mime === 'image/x-ico' || mime === 'image/ico') ext = '.ico';
+                else if (mime === 'image/svg') ext = '.svg';
+            }
+            if (!ext) {
                 try {
                     const urlExt = path.extname(new URL(iconUrl).pathname).toLowerCase();
-                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico'].includes(urlExt)) ext = urlExt === '.jpeg' ? '.jpg' : urlExt;
+                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.svg'].includes(urlExt)) ext = urlExt === '.jpeg' ? '.jpg' : urlExt;
                 } catch { /* keep ext undefined */ }
             }
             if (!ext) { resp.resume(); return resolve(null); }
@@ -2014,8 +2134,10 @@ async function downloadIcon(iconUrl, redirects = 0) {
             resp.on('end', () => {
                 try {
                     if (!size) return resolve(null);
+                    const buf = Buffer.concat(chunks);
+                    if (!isValidIconBuffer(buf, ext)) return resolve(null);
                     const name = crypto.createHash('md5').update(iconUrl).digest('hex') + ext;
-                    fs.writeFileSync(path.join(ICON_DIR, name), Buffer.concat(chunks));
+                    fs.writeFileSync(path.join(ICON_DIR, name), buf);
                     resolve(`/uploads/icons/${name}`);
                 } catch { resolve(null); }
             });
@@ -2024,6 +2146,52 @@ async function downloadIcon(iconUrl, redirects = 0) {
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
     });
+}
+
+// Multi-tier cascade favicon resolver:
+// Tier 1: HTML parsed candidates
+// Tier 2: Well-known origin paths (/favicon.ico, /apple-touch-icon.png, /favicon.png)
+// Tier 3: External high-availability mirrors (saved locally, zero frontend dependency)
+async function resolveAndDownloadFavicon(siteUrl, pageCandidates = []) {
+    let parsed;
+    try { parsed = new URL(siteUrl); } catch { return null; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (await isPrivateHost(parsed.hostname)) return null;
+
+    const origin = parsed.origin;
+    const hostname = parsed.hostname;
+
+    const candidates = [];
+    for (const c of pageCandidates) {
+        if (c && typeof c === 'string' && c.startsWith('http')) {
+            candidates.push(c);
+        }
+    }
+    candidates.push(`${origin}/favicon.ico`);
+    candidates.push(`${origin}/apple-touch-icon.png`);
+    candidates.push(`${origin}/favicon.png`);
+
+    const isTestDomain = hostname.endsWith('.example') || hostname.endsWith('.test') ||
+                         hostname.endsWith('.invalid') || hostname.endsWith('.localhost') ||
+                         /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+    if (!isTestDomain) {
+        candidates.push(`https://api.xinac.net/icon/?url=${encodeURIComponent(hostname)}`);
+        candidates.push(`https://icon.horse/icon/${encodeURIComponent(hostname)}`);
+        candidates.push(`https://icons.duckduckgo.com/ip3/${encodeURIComponent(hostname)}.ico`);
+    }
+
+    const unique = [...new Set(candidates)];
+    for (const cand of unique) {
+        try {
+            const candUrl = new URL(cand);
+            if (await isPrivateHost(candUrl.hostname)) continue;
+            const localPath = await downloadIcon(cand);
+            if (localPath) return localPath;
+        } catch {
+            continue;
+        }
+    }
+    return null;
 }
 
 // One-off repair: localize all externally hosted icons in sites/links
@@ -2071,15 +2239,18 @@ function isRepairableIcon(icon) {
 // and the per-hop SSRF guard are identical to /api/fetch-icon. Never throws.
 async function fetchRepairedIcon(siteUrl) {
     let origin;
-    try { origin = new URL(siteUrl).origin; } catch { return { reason: 'invalid_url' }; }
+    try {
+        const parsed = new URL(siteUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { reason: 'invalid_url' };
+        if (await isPrivateHost(parsed.hostname)) return { reason: 'fetch_failed' };
+        origin = parsed.origin;
+    } catch { return { reason: 'invalid_url' }; }
+
     const meta = await fetchPageMeta(siteUrl, origin);
-    let icon = meta.icon || '';
-    if (icon.startsWith('http')) {
-        // 下载失败说明远程图标不可用，置空而不是留死链
-        icon = await downloadIcon(icon) || '';
-    }
-    if (!icon) return { reason: 'fetch_failed' };
-    return { icon };
+    const candidateList = meta.icons && meta.icons.length ? meta.icons : (meta.icon ? [meta.icon] : []);
+    const localPath = await resolveAndDownloadFavicon(siteUrl, candidateList);
+    if (!localPath) return { reason: 'fetch_failed' };
+    return { icon: localPath };
 }
 
 const ICON_REPAIR_BATCH_MAX = 5;
@@ -2091,6 +2262,7 @@ const ICON_REPAIR_BATCH_MAX = 5;
 app.post('/api/admin/repair-icons', requireAdmin, async (req, res) => {
     try {
         const raw = req.body && req.body.siteIds;
+        const includeText = Boolean(req.body && req.body.includeText);
         if (!Array.isArray(raw) || raw.length === 0) {
             return res.status(400).json({ error: 'siteIds must be a non-empty array' });
         }
@@ -2112,7 +2284,7 @@ app.post('/api/admin/repair-icons', requireAdmin, async (req, res) => {
                 continue;
             }
             const [url, oldIcon] = row[0].values[0];
-            if (!isRepairableIcon(oldIcon)) {
+            if (!includeText && !isRepairableIcon(oldIcon)) {
                 results.push({ id, status: 'skipped', icon: oldIcon || '', reason: 'text_icon' });
                 summary.skipped++;
                 continue;
