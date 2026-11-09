@@ -10,6 +10,7 @@ const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const DB_PATH = process.env.DB_PATH || './dognav.db';
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -2414,12 +2415,12 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 // Start server
-async function start(port = PORT) {
+async function start(port = PORT, host = HOST) {
     await initDb();
-    const server = app.listen(port, () => {
+    const server = app.listen(port, host, () => {
         const actual = server.address().port;
-        console.log(`Server running at http://localhost:${actual}`);
-        console.log(`Admin panel: http://localhost:${actual}/admin`);
+        console.log(`Server running at http://${host === '0.0.0.0' ? 'localhost' : host}:${actual}`);
+        console.log(`Admin panel: http://${host === '0.0.0.0' ? 'localhost' : host}:${actual}/admin`);
     });
     return server;
 }

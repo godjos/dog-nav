@@ -510,23 +510,30 @@ function parseSqliteTime(v) {
     return isNaN(d) ? 0 : d.getTime();
 }
 
-function buildSecHead(icon, label, catId) {
+function buildSecHead(icon, label, catId, count) {
     const secHead = document.createElement('div');
     secHead.className = 'sec-head rv';
     if (catId) {
-        // 分类分组标题同时是页内跳转锚点（分类跳转行 scrollIntoView 到此）
+        // 分类分组标题同时是页内跳转锚点
         secHead.id = 'sec-' + catId;
         secHead.dataset.cat = catId;
     }
     const secIco = document.createElement('div');
     secIco.className = 'sec-ico';
-    secIco.textContent = icon;
+    secIco.textContent = icon || '📁';
     const secTitle = document.createElement('div');
     secTitle.className = 'sec-title';
     secTitle.textContent = label;
+    secHead.append(secIco, secTitle);
+    if (typeof count === 'number') {
+        const secCount = document.createElement('span');
+        secCount.className = 'sec-count';
+        secCount.textContent = String(count);
+        secHead.appendChild(secCount);
+    }
     const secLine = document.createElement('div');
     secLine.className = 'sec-line';
-    secHead.append(secIco, secTitle, secLine);
+    secHead.appendChild(secLine);
     return secHead;
 }
 
@@ -772,7 +779,10 @@ function renderBrowse() {
     const a = document.getElementById('cardsArea');
     a.textContent = '';
 
-    document.getElementById('catNav').hidden = curView !== 'all';
+    const browseTools = document.getElementById('browseTools');
+    if (browseTools) browseTools.hidden = curView === 'all' && !curTag;
+    const catNav = document.getElementById('catNav');
+    if (catNav) catNav.hidden = true;
     buildCatJump();
     updateNavHighlight();
 
@@ -810,7 +820,7 @@ function renderBrowse() {
             // 统一排版：所有分类组整行、同列数（列数可后台覆盖）
             group.className = 'site-group site-group-full';
             group.style.setProperty('--group-columns', String(entry.columns || 4));
-            const head = buildSecHead(c.i, c.l, k);
+            const head = buildSecHead(c.i, c.l, k, g[k].length);
             const grid = buildCardGrid(g[k]);
             group.append(head, grid);
             applyGroupCollapse(group, entry, head, grid);
@@ -1203,6 +1213,10 @@ function updateNavHighlight() {
     document.querySelectorAll('#drawerModes .drawer-item').forEach(x => {
         x.classList.toggle('on', curView === x.dataset.view);
     });
+    const btnAll = document.getElementById('btnAllSites');
+    if (btnAll) btnAll.classList.toggle('on', curView === 'all');
+    const btnRecent = document.getElementById('btnRecentView');
+    if (btnRecent) btnRecent.classList.toggle('on', curView === 'recent');
 }
 
 function syncMoreBtnLabel() {
@@ -1214,18 +1228,21 @@ function syncMoreBtnLabel() {
 
 // 分类跳转行与抽屉列表：只列出当前有可见站点的分类（无站点分类无跳转锚点）
 function buildCatJump() {
+    const pills = document.getElementById('catPills');
+    if (!pills) return;
     const has = new Set(S.map(s => s.category));
     const active = Object.entries(C).filter(([id]) => has.has(id));
 
-    const pills = document.getElementById('catPills');
     const menu = document.getElementById('catMoreMenu');
     pills.textContent = '';
-    menu.textContent = '';
+    if (menu) menu.textContent = '';
     active.forEach(([id, c]) => pills.appendChild(buildCatPill(id, c.i, c.l)));
 
     const drawerCats = document.getElementById('drawerCats');
-    drawerCats.textContent = '';
-    active.forEach(([id, c]) => drawerCats.appendChild(buildDrawerItem('cat', id, `${c.i || '📁'} ${c.l}`)));
+    if (drawerCats) {
+        drawerCats.textContent = '';
+        active.forEach(([id, c]) => drawerCats.appendChild(buildDrawerItem('cat', id, `${c.i || '📁'} ${c.l}`)));
+    }
 
     layoutCatPills();
 }
@@ -1259,28 +1276,31 @@ function initCatSpy() {
     heads.forEach(h => catSpy.observe(h));
 }
 
-document.getElementById('catPills').addEventListener('click', e => {
+document.getElementById('catPills')?.addEventListener('click', e => {
     const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
     jumpToCategory(p.dataset.cat);
 });
-document.getElementById('catMoreMenu').addEventListener('click', e => {
+document.getElementById('catMoreMenu')?.addEventListener('click', e => {
     const p = e.target.closest('.cat-pill[data-cat]'); if (!p) return;
     jumpToCategory(p.dataset.cat);
-    document.getElementById('catMoreMenu').hidden = true;
-    document.getElementById('catMoreBtn').setAttribute('aria-expanded', 'false');
+    const menu = document.getElementById('catMoreMenu');
+    if (menu) menu.hidden = true;
+    document.getElementById('catMoreBtn')?.setAttribute('aria-expanded', 'false');
 });
 
-document.getElementById('catMoreBtn').addEventListener('click', () => {
+document.getElementById('catMoreBtn')?.addEventListener('click', () => {
     const menu = document.getElementById('catMoreMenu');
     const btn = document.getElementById('catMoreBtn');
+    if (!menu || !btn) return;
     const open = menu.hidden;
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 });
 document.addEventListener('click', e => {
     if (!e.target.closest('.cat-more')) {
-        document.getElementById('catMoreMenu').hidden = true;
-        document.getElementById('catMoreBtn').setAttribute('aria-expanded', 'false');
+        const menu = document.getElementById('catMoreMenu');
+        if (menu) menu.hidden = true;
+        document.getElementById('catMoreBtn')?.setAttribute('aria-expanded', 'false');
     }
 });
 
@@ -1337,8 +1357,8 @@ function updateTagChip() {
         overlay.hidden = true;
     }
 
-    document.getElementById('catDrawerBtn').addEventListener('click', openDrawer);
-    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    document.getElementById('catDrawerBtn')?.addEventListener('click', openDrawer);
+    document.getElementById('drawerClose')?.addEventListener('click', closeDrawer);
     overlay.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape' && !drawer.hidden) closeDrawer();
@@ -1540,6 +1560,15 @@ document.querySelectorAll('[data-set-theme]').forEach(b => {
         syncThemeSeg();
     });
 });
+const themeBtn = document.getElementById('themeBtn');
+if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+        const next = H.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        H.setAttribute('data-theme', next);
+        writePreference('dognav-theme', next);
+        syncThemeSeg();
+    });
+}
 syncThemeSeg();
 
 // ═══════════════════════════════════════════
