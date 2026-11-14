@@ -11,7 +11,7 @@
             { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd={query}' },
             { id: 'google', name: 'Google', url: 'https://www.google.com/search?q={query}' },
             { id: 'bing', name: 'Bing', url: 'https://www.bing.com/search?q={query}' },
-            { id: 'yuanbao', name: '元宝搜索', url: 'https://so.qq.com/?query={query}' },
+            { id: 'yuanbao', name: '元宝搜索', url: 'https://so.qq.com/isearch?query={query}' },
             { id: 'github', name: 'GitHub', url: 'https://github.com/search?q={query}' },
             { id: 'bilibili', name: 'B站', url: 'https://search.bilibili.com/all?keyword={query}' },
             { id: 'zhihu', name: '知乎', url: 'https://www.zhihu.com/search?type=content&q={query}' },
