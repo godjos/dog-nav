@@ -74,7 +74,7 @@ describe('homepage configuration', () => {
         assert.deepEqual(result.value.category_ids, []);
         assert.deepEqual(result.value.pinned_ids, []);
         assert.equal(result.value.show_recent, false);
-        assert.equal(result.value.engines.length, 6);
+        assert.equal(result.value.engines.length, 7);
         assert.equal(homeConfig.parse('{}').category_limit, 5);
         assert.deepEqual(homeConfig.parse('{}').layout, []);
     });
